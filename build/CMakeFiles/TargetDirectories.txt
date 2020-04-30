@@ -1,4 +1,0 @@
-/mnt/oldopt/portapty/build/CMakeFiles/rebuild_cache.dir
-/mnt/oldopt/portapty/build/CMakeFiles/edit_cache.dir
-/mnt/oldopt/portapty/build/mbedtls/CMakeFiles/rebuild_cache.dir
-/mnt/oldopt/portapty/build/mbedtls/CMakeFiles/edit_cache.dir
