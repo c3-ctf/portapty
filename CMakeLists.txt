@@ -1,10 +1,7 @@
-cmake_minimum_required(VERSION 3.11)
+cmake_minimum_required(VERSION 3.7)
 project(portapty)
 
-cmake_policy(VERSION 3.16)
-
-# Needed for _Thread_local
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD 99)
 
 #set(CMAKE_C_COMPILER musl-gcc)
 #set(CMAKE_CXX_COMPILER musl-gcc)
@@ -19,10 +16,8 @@ else()
 endif()
 
 if (NOT PORTAPTY_NO_MUSL)
-  include_directories("/usr/include/x86_64-linux-musl")
+
 #  set(CMAKE_C_COMPILER /usr/bin/musl-gcc)
-  set(CMAKE_LINKER /usr/bin/musl-ldd)
-  set(PORTAPTY_EXTRA util)
 endif()
 
 set(ENABLE_TESTING OFF)
@@ -34,27 +29,26 @@ if (PORTAPTY_DEBUG)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -ggdb3")
 else()
   add_definitions(-DPORTAPTY_QUIET=1)
-  set(CMAKE_C_FLAGS "-static")
-  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-  set(CMAKE_C_FLAGS "-specs \"${CMAKE_CURRENT_SOURCE_DIR}/musl-gcc.specs\" -Os -s -ffunction-sections -fdata-sections -m32 -Wl,-melf_i386 -Wl,--gc-sections -DNDEBUG")
-#  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -DNDEBUG")
+  include_directories("/usr/include/i386-linux-musl")
+  set(CMAKE_LINKER /usr/bin/musl-ldd)
+  if (CMAKE_COMPILER_IS_GNUCC)
+    set(CMAKE_C_FLAGS "-specs \"${CMAKE_CURRENT_SOURCE_DIR}/musl-gcc.specs\"")
+  endif()
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Os -ffunction-sections -fdata-sections -m32 -DNDEBUG")
+  set(CMAKE_C_FLAGS_RELEASE     "")
+  # Evil hack to bypass -O2 on mbedtls
+  unset(CMAKE_C_COMPILER_ID)
 endif()
 
 add_subdirectory(mbedtls)
 
-# We need this for some mad reason
-
-#if (CMAKE_C_COMPILER_ID STREQUAL "Clang")
-#  include_directories("/usr/include/")
-#endif()
-
 
 add_executable(portapty src/main.c src/net.c src/upgrade.c src/crypto.c src/server.c src/client.c)
-target_include_directories(portapty PUBLIC "/usr/include/i386-linux-musl")
-target_link_libraries(portapty mbedtls util ${PORTAPTY_EXTRA})
+target_link_libraries(portapty mbedtls util)
+target_link_options(portapty PUBLIC "-s;-Wl,--gc-sections;-Wl,--as-needed;-Wl,-melf_i386")
 
 add_executable(mbedtls-err src/err.c)
-target_link_libraries(mbedtls-err mbedtls util ${PORTAPTY_EXTRA})
+target_link_libraries(mbedtls-err mbedtls util)
 
 if (NOT PORTAPTY_DEBUG)
 #  get_property(portapty_path TARGET portapty PROPERTY LOCATION)
@@ -63,5 +57,3 @@ if (NOT PORTAPTY_DEBUG)
   # brute kills it for some reason, so no thanks
   add_custom_command(TARGET portapty POST_BUILD COMMAND upx --best ${portapty_path} || exit 0)
 endif()
-
-#set_target_properties(portapty PROPERTIES COMPILE_OPTIONS "-m32;-Os" LINK_OPTIONS "-m elf_i386;-static;-s")
