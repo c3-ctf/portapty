@@ -63,6 +63,8 @@ connected: {}
   union handshake_config handshake_cfg;
   char cmdline[PORTAPTY_CMD_WIDTH];
   handshake_cfg.client.cmdline_ret = &cmdline;
+  uint8_t is_pty;
+  handshake_cfg.client.is_pty = &is_pty;
 
   if (cert_hash_b64) {
     uint8_t hash[PORTAPTY_HASH_LEN];
@@ -80,23 +82,35 @@ connected: {}
     goto cleanup;
   }
 
-  int master, slave;
-  char name[PATH_MAX];
+  if (is_pty) {
+    PORTAPTY_PRINTF_INFO("starting pty\n");
 
-  // Fork and exec the executable
-  if (!forkpty(&master, name, NULL, NULL)) {
-    // This will not wait for a flush before exiting, and will just sighup!
-    execl("/bin/sh", "/bin/sh", "-c", cmdline, (char*)NULL);
-    // Make a bit of noise if we can't exec sh
-    abort();
+    int master;
+
+    char name[PATH_MAX];
+
+    // Fork and exec the executable
+    if (!forkpty(&master, name, NULL, NULL)) {
+      // XXX: This will not wait for a flush before exiting, and will just sighup!
+      execl("/bin/sh", "/bin/sh", "-c", cmdline, (char*)NULL);
+      // Make a bit of noise if we can't exec sh
+      abort();
+    }
+
+    portapty_read_loop(&ssl_ctx, client, master, master);
+    close(master);
   }
-  close(slave);
+  else {
+    PORTAPTY_PRINTF_INFO("starting pipes\n");
+    int read_fd, write_fd;
+    if ((err = portapty_fork_pipe(&read_fd, &write_fd, cmdline))) {
+      PORTAPTY_PRINTF_ERR("could not create pipes (errno %i)\n", err);
+      goto cleanup;
+    }
 
-  PORTAPTY_PRINTF_INFO("available on %s\n", name);
-
-  portapty_read_loop(&ssl_ctx, client, master);
-
-  close(master);
+    portapty_read_loop(&ssl_ctx, client, read_fd, write_fd);
+    close(read_fd); close(write_fd);
+  }
 
   PORTAPTY_PRINTF_INFO("done\n");
 

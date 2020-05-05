@@ -45,7 +45,9 @@ add_subdirectory(mbedtls)
 
 add_executable(portapty src/main.c src/net.c src/upgrade.c src/crypto.c src/server.c src/client.c)
 target_link_libraries(portapty mbedtls util)
-target_link_options(portapty PUBLIC "-s;-Wl,--gc-sections;-Wl,--as-needed;-Wl,-melf_i386")
+if (NOT PORTAPTY_DEBUG)
+  target_link_options(portapty PUBLIC "-s;-Wl,--gc-sections;-Wl,--as-needed;-Wl,-melf_i386")
+endif()
 
 add_executable(mbedtls-err src/err.c)
 target_link_libraries(mbedtls-err mbedtls util)

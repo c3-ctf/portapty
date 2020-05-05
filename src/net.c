@@ -136,7 +136,7 @@ static enum portapty_poll_t portapty_poll(mbedtls_ssl_context* ssl_ctx, int net_
   return ret;
 }
 
-void portapty_read_loop(mbedtls_ssl_context* ssl_ctx, int client_fd, int pty_fd) {
+void portapty_read_loop(mbedtls_ssl_context* ssl_ctx, int client_fd, int read_fd, int write_fd) {
   int err = 0;
   {
     int client_flags = fcntl(client_fd, F_GETFL, 0);
@@ -144,30 +144,30 @@ void portapty_read_loop(mbedtls_ssl_context* ssl_ctx, int client_fd, int pty_fd)
     err = fcntl(client_fd, F_SETFL, client_flags);
   }
   {
-    int pty_flags = fcntl(pty_fd, F_GETFL, 0);
+    int pty_flags = fcntl(read_fd, F_GETFL, 0);
     pty_flags |= O_NONBLOCK;
-    err = fcntl(pty_fd, F_SETFL, pty_flags);
+    err = fcntl(read_fd, F_SETFL, pty_flags);
   }
 
   int poll_result;
-  while (!((poll_result = portapty_poll(ssl_ctx, client_fd, pty_fd)) & Portapty_Poll_ClosedMask)) {
+  while (!((poll_result = portapty_poll(ssl_ctx, client_fd, read_fd)) & Portapty_Poll_ClosedMask)) {
     if (!poll_result)
       continue;
 
-    uint8_t buf[1024];
+    uint8_t buf[8192];
     int pty_n_avail;
     int n_read;
 
     if (poll_result & Portapty_Poll_NetData) {
-      if((n_read = mbedtls_ssl_read(ssl_ctx, buf, sizeof(buf))) > 0) { //printf("%s", buf);
-        write(pty_fd, buf, n_read); }
+      if((n_read = mbedtls_ssl_read(ssl_ctx, buf, sizeof(buf))) > 0) { //printf("< %s\n", buf);
+        write(write_fd, buf, n_read); }
       // If this happens, the socket has actually errored
       else if (n_read != EWOULDBLOCK)
         break;
     }
 
     if (poll_result & Portapty_Poll_PtyData) {
-      if ((n_read = read(pty_fd, buf, sizeof(buf))) > 0) { //printf("%s", buf);
+      if ((n_read = read(read_fd, buf, sizeof(buf))) > 0) { //printf("> %s\n", buf);
         mbedtls_ssl_write(ssl_ctx, buf, n_read);}
       // If this happens, the socket has actually errored
       else if (n_read != EWOULDBLOCK)

@@ -43,6 +43,8 @@
 #define MBEDTLS_MD_C
 #define MBEDTLS_SHA256_C
 #define MBEDTLS_SSL_TLS_C
+#define MBEDTLS_SSL_CLI_C
+#define MBEDTLS_SSL_SRV_C
 #define MBEDTLS_X509_USE_C
 
 #ifdef NDEBUG

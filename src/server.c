@@ -7,6 +7,7 @@ struct server_ctx {
   mbedtls_x509_crt crt;
   const char* driver;
   const char* cmd;
+  uint8_t is_pty;
 };
 
 static void handle_client(int client, struct server_ctx* ctx, const char* client_ep_str) {
@@ -30,6 +31,7 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
   cfg.server.crt = &ctx->crt;
   // Default to /bin/sh
   cfg.server.cmdline = ctx->cmd ? ctx->cmd : "/bin/sh";
+  cfg.server.is_pty = ctx->is_pty;
 
   if ((err = do_handshake(client, &ssl_ctx, &ssl_cfg, &rng, 1, &cfg))) {
     PORTAPTY_PRINTF_ERR("handshake failed (err %i)\n", err);
@@ -39,18 +41,21 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
   int master, slave;
   char name[PATH_MAX];
 
+  struct termios tty;
+  cfmakeraw(&tty);
+
   if (ctx->driver) {
-    if (!forkpty(&master, name, NULL, NULL)) {
-      execl("/bin/sh", "/bin/sh", "-c", ctx->driver, NULL);
-      // Make some noise if we cannot exec sh
-      abort();
+    PORTAPTY_PRINTF_INFO("starting pipes\n");
+    int read_fd, write_fd;
+    if ((err = portapty_fork_pipe(&read_fd, &write_fd, ctx->driver))) {
+      PORTAPTY_PRINTF_ERR("could not create pipes (errno %i)\n", err);
+      goto cleanup;
     }
-    PORTAPTY_PRINTF_UPGRADED("controlling on %s\n", name);
+
+    portapty_read_loop(&ssl_ctx, client, read_fd, write_fd);
+    close(read_fd); close(write_fd);
   }
   else {
-    struct termios tty;
-    cfmakeraw(&tty);
-
     if (openpty(&master, &slave, name, &tty, NULL)) {
       int err = errno;
       PORTAPTY_PRINTF_ERR("could not open pty (errno %i)\n", err);
@@ -59,20 +64,22 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
     PORTAPTY_PRINTF_UPGRADED("%s available on %s\n", client_ep_str, name);
   }
 
-  portapty_read_loop(&ssl_ctx, client, master);
+  portapty_read_loop(&ssl_ctx, client, master, master);
+
   PORTAPTY_PRINTF_UPGRADED("closing %s (%s)\n", client_ep_str, name);
 
-  cleanup:
   if (!ctx->driver) close(slave);
   close(master);
+
+  cleanup:
   mbedtls_ssl_free(&ssl_ctx);
   mbedtls_ssl_config_free(&ssl_cfg);
   mbedtls_hmac_drbg_free(&rng);
   mbedtls_entropy_free(&entropy);
 }
 
-int run_server(const char** eps_elems, size_t eps_len,
-               const char* key_path, const char* cert_path, const char* driver, const char* cmd) {
+int run_server(const char** eps_elems, size_t eps_len, const char* key_path, const char* cert_path,
+               const char* driver, const char* cmd, uint8_t is_pty) {
   // Re-enable sigint
   signal(SIGINT, SIG_DFL);
   int err;
@@ -109,6 +116,7 @@ int run_server(const char** eps_elems, size_t eps_len,
   // Now we have finished init'ing , we can get to work
   ctx.driver = driver;
   ctx.cmd = cmd;
+  ctx.is_pty = is_pty;
 
   if (key_path) {
     uint8_t* buf;

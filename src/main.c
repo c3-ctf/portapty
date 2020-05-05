@@ -1,13 +1,43 @@
 #include "common.h"
 
+// Cyclic3's big TODO list of doom:
+//
+// * Set up channel multiplexing
+// * Add routing for pivoting (because it will make me look cool)
+// * Disconnect recovery or smth idk
+
 int source_fd;
 const uint8_t* source_buf;
 off_t source_len;
 
-// Cyclic3's big TODO list of doom:
-//
-// * Add routing for pivoting (because it will make me look cool)
-// * Disconnect recovery or smth idk
+int portapty_fork_pipe(int* read_fd, int* write_fd, const char* cmdline) {
+  int stdin_pipes[2], stdout_pipes[2];
+  if (pipe(stdin_pipes) || pipe(stdout_pipes)) {
+    return errno;
+  }
+  // pipe[0] is for reading, and pipe[1] is for writing
+  if (!fork()) {
+    // Close the master end
+    close(stdin_pipes[1]); close(stdout_pipes[0]);
+
+    dup2(stdin_pipes[0], STDIN_FILENO);
+    dup2(stdout_pipes[1], STDOUT_FILENO);
+    dup2(stdout_pipes[1], STDERR_FILENO);
+
+    // Close the trailing slave fds
+    close(stdin_pipes[0]); close(stdout_pipes[1]);
+    execl("/bin/sh", "/bin/sh", "-c", cmdline, (char*)NULL);
+
+    // Make a bit of noise if we can't exec sh
+    abort();
+  }
+
+  // Close the slave fds
+  close(stdin_pipes[0]); close(stdout_pipes[1]);
+  *read_fd = stdout_pipes[0];
+  *write_fd = stdin_pipes[1];
+  return 0;
+}
 
 enum mode {
   Portapty_Client, Portapty_Server, Portapty_Keygen
@@ -48,6 +78,7 @@ int main(const int argc, const char* argv[]) {
   const char* key_str = NULL;
   const char* driver = NULL;
   const char* cmd = NULL;
+  int is_pty = -1;
   int eps_offset;
   int eps_len;
   // Since all options take at least one argument, we can iterate up to argc - 1,
@@ -58,6 +89,9 @@ int main(const int argc, const char* argv[]) {
         PORTAPTY_PRINTF_ERR("driver can only be specified in server mode\n");
         goto print_help;
       }
+      // We disable the pty by default for a driver
+      if (is_pty < 0)
+        is_pty = 0;
       driver = argv[++eps_offset];
     }
     else if (!strcmp(argv[eps_offset], "cert"))
@@ -68,6 +102,21 @@ int main(const int argc, const char* argv[]) {
         goto print_help;
       }
       key_str = argv[++eps_offset];
+    }
+    else if (!strcmp(argv[eps_offset], "pty")) {
+      if (mode == Portapty_Client) {
+        PORTAPTY_PRINTF_ERR("pty cannot be specified in client mode\n");
+        goto print_help;
+      }
+      ++eps_offset;
+      if (!strcmp(argv[eps_offset], "on"))
+        is_pty = 1;
+      else if (!strcmp(argv[eps_offset], "off"))
+        is_pty = 0;
+      else {
+        PORTAPTY_PRINTF_ERR("invalid pty mode");
+        goto print_help;
+      }
     }
     else if (!strcmp(argv[eps_offset], "cmd")) {
       if (mode != Portapty_Server) {
@@ -102,6 +151,10 @@ found_ep_list:
     }
   }
 
+  // If we didn't decide on a is_pty, enable it
+  if (is_pty < 0)
+    is_pty = 1;
+
 
   // Now we open the source file, and map it into memory
   source_fd = open(argv[0], O_RDONLY | O_CLOEXEC);
@@ -110,18 +163,19 @@ found_ep_list:
 
   switch (mode) {
     case Portapty_Client: return run_client(argv + eps_offset, argc - eps_offset, cert_str);
-    case Portapty_Server: return run_server(argv + eps_offset, argc - eps_offset, key_str, cert_str, driver, cmd);
+    case Portapty_Server: return run_server(argv + eps_offset, argc - eps_offset, key_str, cert_str, driver, cmd, is_pty);
     case Portapty_Keygen: return run_gen(key_str, cert_str);
     default: abort();
   }
 
 print_help:
-#ifndef NDEBUG
-  printf("%s <client|server|keygen> OPTIONS\n", argv[0]);
+  // This is helpful even outside of debug mode
+//#ifndef NDEBUG
+  printf("%s <client|server|keygen> [OPTIONS]\n", argv[0]);
   printf("Options:\n");
   printf("    client: [cert CERTHASH] eps IP PORT [IP PORT]...\n");
-  printf("    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] eps IP PORT [IP PORT]...\n");
+  printf("    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] [pty on|off] eps IP PORT [IP PORT]...\n");
   printf("    keygen: [cert CERTFILE] [key KEYFILE]\n");
-#endif
+//#endif
   return 1;
 }

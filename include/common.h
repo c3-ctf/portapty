@@ -57,7 +57,8 @@
 int sockaddr2str(const struct sockaddr_in6* ep, char buf[PORTAPTY_SOCKADDR_STRLEN]);
 /// @returns 0 on success, 1 on a bad address and 2 on a bad port
 int str2sockaddr(struct sockaddr_in6* ep, const char* addr, const char* port);
-void portapty_read_loop(mbedtls_ssl_context* ssl_ctx, int client_fd, int pty_fd);
+void portapty_read_loop(mbedtls_ssl_context* ssl_ctx, int client_fd, int read_fd, int write_fd);
+int portapty_fork_pipe(int* read_fd, int* write_fd, const char* cmdline);
 
 /// @param args: a null terminated array of arguments, with proper quotation and escapes
 void upgrade(int fd, char const* const* args);
@@ -94,11 +95,14 @@ union handshake_config {
     mbedtls_x509_crt* crt;
     mbedtls_pk_context* pk;
     const char* cmdline;
+    // Use a uint8_t for easier serialisation
+    uint8_t is_pty;
   } server;
 
   struct {
     const uint8_t (*fingerprint)[PORTAPTY_HASH_LEN];
     char (*cmdline_ret)[PORTAPTY_CMD_WIDTH];
+    uint8_t* is_pty;
   } client;
 };
 
@@ -107,7 +111,7 @@ union handshake_config {
 int do_handshake(int sock, mbedtls_ssl_context* ssl_ctx, mbedtls_ssl_config* ssl_cfg,
                  mbedtls_hmac_drbg_context* rng, int is_server, const union handshake_config* cfg);
 
-int run_server(const char** eps_elems, size_t eps_len,
-               const char* key_path, const char* cert_path, const char* driver, const char* cmd);
+int run_server(const char** eps_elems, size_t eps_len, const char* key_path, const char* cert_path,
+               const char* driver, const char* cmd, uint8_t is_pty);
 int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64);
 int run_gen(const char* key_path, const char* cert_path);
