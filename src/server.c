@@ -2,20 +2,78 @@
 
 #include <mbedtls/error.h>
 
-static void handle_client(int client) {
+struct server_ctx {
+  mbedtls_pk_context pk_ctx;
+  mbedtls_x509_crt crt;
+  const char* driver;
+  const char* cmd;
+};
+
+static void handle_client(int client, struct server_ctx* ctx, const char* client_ep_str) {
+  int err;
+
+  // Since this will be forked, we need to make new rngs or we reuse entropy
+  mbedtls_entropy_context entropy;
+  init_entropy(&entropy);
+
+  mbedtls_hmac_drbg_context rng;
+  init_drbg(&rng, &entropy);
+
+  mbedtls_ssl_config ssl_cfg;
+  mbedtls_ssl_config_init(&ssl_cfg);
+
+  mbedtls_ssl_context ssl_ctx;
+  mbedtls_ssl_init(&ssl_ctx);
+
+  union handshake_config cfg;
+  cfg.server.pk = &ctx->pk_ctx;
+  cfg.server.crt = &ctx->crt;
+  // Default to /bin/sh
+  cfg.server.cmdline = ctx->cmd ? ctx->cmd : "/bin/sh";
+
+  if ((err = do_handshake(client, &ssl_ctx, &ssl_cfg, &rng, 1, &cfg))) {
+    PORTAPTY_PRINTF_ERR("handshake failed (err %i)\n", err);
+    goto cleanup;
+  }
+
   int master, slave;
   char name[PATH_MAX];
 
-  if (openpty(&master, &slave, name, NULL, NULL)) {
-    int err = errno;
-    PORTAPTY_PRINTF_ERR("could not open pty (errno %i)\n", err);
+  if (ctx->driver) {
+    if (!forkpty(&master, name, NULL, NULL)) {
+      execl("/bin/sh", "/bin/sh", "-c", ctx->driver, NULL);
+      // Make some noise if we cannot exec sh
+      abort();
+    }
+    PORTAPTY_PRINTF_UPGRADED("controlling on %s\n", name);
+  }
+  else {
+    struct termios tty;
+    cfmakeraw(&tty);
+
+    if (openpty(&master, &slave, name, &tty, NULL)) {
+      int err = errno;
+      PORTAPTY_PRINTF_ERR("could not open pty (errno %i)\n", err);
+      goto cleanup;
+    }
+    PORTAPTY_PRINTF_UPGRADED("%s available on %s\n", client_ep_str, name);
   }
 
-  PORTAPTY_PRINTF_UPGRADED("available on %s\n", name);
+  portapty_read_loop(&ssl_ctx, client, master);
+  PORTAPTY_PRINTF_UPGRADED("closing %s (%s)\n", client_ep_str, name);
+
+  cleanup:
+  if (!ctx->driver) close(slave);
+  close(master);
+  mbedtls_ssl_free(&ssl_ctx);
+  mbedtls_ssl_config_free(&ssl_cfg);
+  mbedtls_hmac_drbg_free(&rng);
+  mbedtls_entropy_free(&entropy);
 }
 
-int run_server(const char** eps_elems, size_t eps_len, const char* key_path, const char* cert_path) {
-  // TODO: what do we do with a CTRL+C?
+int run_server(const char** eps_elems, size_t eps_len,
+               const char* key_path, const char* cert_path, const char* driver, const char* cmd) {
+  // Re-enable sigint
   signal(SIGINT, SIG_DFL);
   int err;
   int ret = 0;
@@ -25,10 +83,10 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
     return 1;
   }
 
-
   const char** args = calloc( // This probably doesn't need to be a calloc
+        1 + // 'cert'
         1 + // the hash
-        1 + // the list delimiter
+        1 + // 'eps'
         eps_len + // All the ips and ports
         1, // trailing null
         sizeof(char**)
@@ -36,75 +94,77 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
   int is_cert_ber_alloc = 0;
 
   // Crypto stuff to be filled in
-  mbedtls_pk_context pk_ctx;
-  mbedtls_x509_crt crt;
-  char fingerprint[PORTAPTY_HASH_STR_LEN];
+  struct server_ctx ctx;
+  mbedtls_pk_init(&ctx.pk_ctx);
+  mbedtls_x509_crt_init(&ctx.crt);
+
   mbedtls_entropy_context entropy;
-  mbedtls_hmac_drbg_context rng;
-
   init_entropy(&entropy);
-  init_drbg(&rng, &entropy);
-  mbedtls_pk_init(&pk_ctx);
-  mbedtls_x509_crt_init(&crt);
 
-  // Now we have finished init'ing and alloc'ing, we can get to work
+  mbedtls_hmac_drbg_context rng;
+  init_drbg(&rng, &entropy);
+
+  char fingerprint[PORTAPTY_HASH_STR_LEN];
+
+  // Now we have finished init'ing , we can get to work
+  ctx.driver = driver;
+  ctx.cmd = cmd;
+
   if (key_path) {
     uint8_t* buf;
     size_t len;
-    if ((ret = mbedtls_pk_parse_keyfile(&pk_ctx, key_path, ""))) {
-      PORTAPTY_PRINTF_ERR("could not load private key\n");
+    if ((ret = mbedtls_pk_parse_keyfile(&ctx.pk_ctx, key_path, NULL))) {
+      PORTAPTY_PRINTF_ERR("could not load private key (err %i)\n", ret);
       goto cleanup;
     }
   }
+  // A cert without a key is non-sensical
   else if (cert_path) {
     PORTAPTY_PRINTF_ERR("certificate given without key\n");
     ret = 1; goto cleanup;
   }
+  // If we have no private key, then we must generate one
   else {
-    if ((ret = gen_key(&pk_ctx, &rng))) {
-      PORTAPTY_PRINTF_ERR("key generation failed\n");
+    if ((ret = gen_key(&ctx.pk_ctx, &rng))) {
+      PORTAPTY_PRINTF_ERR("key generation failed (err %i)\n", ret);
       goto cleanup;
     }
   }
 
   if (cert_path) {
-    if ((ret = mbedtls_x509_crt_parse_file(&crt, key_path))) {
-      PORTAPTY_PRINTF_ERR("failed to parse certificate\n");
+    if ((ret = mbedtls_x509_crt_parse_file(&ctx.crt, cert_path))) {
+      PORTAPTY_PRINTF_ERR("failed to parse certificate (err %i)\n", ret);
       goto cleanup;
     }
   }
   else {
     // I'm malloc'ing, as 16384 is a lot of bytes for the stack
-    uint8_t* tmp_ber = calloc(PORTAPTY_CERT_BUF_LEN, 1);
-    int tmp_ber_len = gen_self_signed_cert(tmp_ber, &pk_ctx, &rng);
+    uint8_t* tmp_ber = malloc(PORTAPTY_CERT_BUF_LEN);
+    int tmp_ber_len = gen_self_signed_cert(tmp_ber, &ctx.pk_ctx, &rng);
 //    tmp_ber_len = 261;
 
-    // This took me ages to figure out. ret is actually an offset because screw you
-    if (tmp_ber_len < 0 || (ret = mbedtls_x509_crt_parse_der_nocopy(&crt, tmp_ber, tmp_ber_len))) {
-      char error_buf[256];
-      mbedtls_strerror(ret ? ret : tmp_ber_len, error_buf, 256);
-
-      PORTAPTY_PRINTF_ERR("failed to create self-signed certificate (%s)\n", error_buf);
+    if (tmp_ber_len < 0 || (ret = mbedtls_x509_crt_parse_der_nocopy(&ctx.crt, tmp_ber, tmp_ber_len))) {
+      PORTAPTY_PRINTF_ERR("failed to create self-signed certificate (%i)\n", ret ? ret : tmp_ber_len);
+      // We failed, so we have to clean up the buffer ourselves
       free(tmp_ber);
       goto cleanup;
     }
     // We don't need to free tmp_ber, as it was stolen by the _nocopy function above
-    free(tmp_ber); // yeet
   }
 
-  get_hash(fingerprint, crt.raw.p, crt.raw.len);
+  uint8_t hash_buf[PORTAPTY_HASH_LEN];
+  get_hash(hash_buf, ctx.crt.raw.p, ctx.crt.raw.len);
+  encode_hash(fingerprint, hash_buf);
   PORTAPTY_PRINTF_INFO("loaded cert with fingerprint %s\n", fingerprint);
 
   // Work out what args we forward to the client
-  //
-  //                   all the ips and ports +
-
-  args[0] = fingerprint;
-  args[1] = "--";
-  memcpy(&args[2], eps_elems, eps_len * sizeof(const char*));
+  args[0] = "cert";
+  args[1] = fingerprint;
+  args[2] = "eps";
+  memcpy(&args[3], eps_elems, eps_len * sizeof(const char*));
 
   // INET6 means that we get to do both v4 and v6
-  int server = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
+  int server = socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
   if (server < 0) {
     err = errno;
     PORTAPTY_PRINTF_ERR("could not create socket (errno %i)\n", err);
@@ -117,7 +177,7 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
   int reuse_port_val = 1;
   setsockopt(server, SOL_SOCKET, SO_REUSEPORT, &reuse_port_val, sizeof(reuse_port_val));
 
-  // Allow IPv6
+  // Allow IPv4
   //
   // Again, we want this, but it is not necessary.
   // This is already allowed by default on Linux.
@@ -152,6 +212,12 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
 
   // Do a boring accept loop
   while (1) {
+
+#ifdef NDEBUG
+#define PORTAPTY_CLIENT_DROP exit(0)
+#else
+#define PORTAPTY_CLIENT_DROP close(client); continue
+#endif
     struct sockaddr_in6 client_sa;
     socklen_t client_sa_len = sizeof(client_sa);
     int client = accept(server, (struct sockaddr*)&client_sa, &client_sa_len);
@@ -159,29 +225,15 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
     if (client < 0)
       continue;
 
-    if (!fork()) {
+    // Disable fork if we're debugging
+#ifdef NDEBUG
+    if (fork()) {
       close(client);
       continue;
     }
 
     close(server);
-
-    // Set the receive timeout to something sensible
-    //
-    // TODO: be sensible
-    {
-      const struct timeval timeout = {.tv_sec = 2, .tv_usec = 0 };
-      if (setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, (void*)&timeout, sizeof(timeout))) {
-        err = errno;
-        PORTAPTY_PRINTF_ERR("could not set receive timeout (errno %i)\n", err);
-        exit(0);
-      }
-      if (setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, (void*)&timeout, sizeof(timeout))) {
-        err = errno;
-        PORTAPTY_PRINTF_ERR("could not set send timeout (errno %i)\n", err);
-        exit(0);
-      }
-    }
+#endif
 
     char client_ep_str[PORTAPTY_SOCKADDR_STRLEN];
     // This can only really go wrong if somehow a non IPv4/IPv6 client connects.
@@ -192,44 +244,48 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
 
     PORTAPTY_PRINTF_INFO("%s connected\n", client_ep_str);
 
-    // Added 1 for debugging purposes
-    char hello_buf[PORTAPTY_HELLO_LEN + 1] = {0};
-
-    // Check if this is already upgraded
-    //
-    // Yes, this will _technically_ fail if the other end is somehow compiled with a different encoding.
-    // That failure mode is superior, as otherwise we behave differently if the length is different (because of EWOULDBLOCK)
-    fd_set set;
-    FD_ZERO(&set);
-    FD_SET(client, &set);
-
-    if (recv(client, &hello_buf, PORTAPTY_HELLO_LEN, MSG_PEEK) == PORTAPTY_HELLO_LEN) {
-      if (!memcmp(hello_buf, PORTAPTY_HELLO, PORTAPTY_HELLO_LEN)) {
-        // Skip the bytes
-        read(client, &hello_buf, PORTAPTY_HELLO_LEN);
-        PORTAPTY_PRINTF_INFO("%s upgraded\n", client_ep_str);
-        handle_client(client);
-        exit(0);
+    // The first byte of a TLS handshake is 0x16, which is convienently not a printable char in ascii
+    char buf;
+    // Give the remote 2 seconds to send tls handshake
+    {
+      const struct timeval timeout = {.tv_sec = 2, .tv_usec = 0 };
+      if (setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, (void*)&timeout, sizeof(timeout))) {
+        err = errno;
+        PORTAPTY_PRINTF_ERR("could not set receive timeout (errno %i)\n", err);
+        PORTAPTY_CLIENT_DROP;
       }
-      else
-        PORTAPTY_PRINTF_WARN("non-portapty OOB data received (begins %s), assuming basic shell\n", hello_buf);
+    }
+    int n_recv = recv(client, &buf, 1, MSG_PEEK);
+    // Unset the timeout
+    {
+      const struct timeval timeout = { 0 };
+      if (setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, (void*)&timeout, sizeof(timeout))) {
+        err = errno;
+        PORTAPTY_PRINTF_ERR("could not unset receive timeout (errno %i)\n", err);
+        PORTAPTY_CLIENT_DROP;
+      }
+    }
+    if (n_recv == 1 && buf == 0x16) {
+      PORTAPTY_PRINTF_INFO("%s upgraded\n", client_ep_str);
+      handle_client(client, &ctx, client_ep_str);
+      PORTAPTY_CLIENT_DROP;
     }
 
     // If we get here, then we have a non-upgraded shell.
-    PORTAPTY_PRINTF_INFO("%s is posix shell %s\n", client_ep_str, hello_buf);
+    PORTAPTY_PRINTF_INFO("%s is posix shell\n", client_ep_str);
     // Upgrade the client
+    //
+    // TODO: make this optional for edge cases
     upgrade(client, args);
     PORTAPTY_PRINTF_INFO("%s upgrading\n", client_ep_str);
     close(client);
-    exit(0);
-
-    // FIXME: nope
-    close(client);
+    // No need to exit if we haven't forked
+    PORTAPTY_CLIENT_DROP;
   }
 
   cleanup:
-  mbedtls_x509_crt_free(&crt);
-  mbedtls_pk_free(&pk_ctx);
+  mbedtls_x509_crt_free(&ctx.crt);
+  mbedtls_pk_free(&ctx.pk_ctx);
   mbedtls_hmac_drbg_free(&rng);
   mbedtls_entropy_free(&entropy);
   free(args);

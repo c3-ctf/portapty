@@ -1,18 +1,44 @@
 #include "common.h"
 
-static void upgrade_printf_buf(int fd, const uint8_t* buf, size_t len) {
+#include <ctype.h>
+
+// Sod it, do a bool array
+static const uint8_t no_escape[256] = {
+//0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 00
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 10
+  1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, // 20
+  0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, // 30
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 40
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, // 50
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 60
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, // 70
+};
+
+/// @returns the number of bytes of buf sent
+static size_t upgrade_printf_buf(int fd, const uint8_t* buf, size_t len) {
   // This is really crap
   //
   // TODO: uncrapify
   //
   // If we don't do this, we end up mallocing =(
-  WRITE_STRLIT(fd, "printf '");
-  for (size_t i = 0; i < len; ++i) {
-    char escape[5] = "\\";
-    snprintf(escape + 1, 4, "%o", buf[i]);
-    WRITE_STR(fd, escape);
+  char out_buf[PORTAPTY_CMD_WIDTH] = "printf -- '";
+  // Points to just after the initial string
+  size_t offset = sizeof("printf -- '") - 1;
+  size_t i;
+
+  // TODO: I could do the calc, but 32 is enough and is stable
+  for (i = 0; i < len && offset < PORTAPTY_CMD_WIDTH - 32; ++i) {
+    // If we used isalnum, we could break octal!
+    if (no_escape[buf[i]])
+      out_buf[offset++] = buf[i];
+    else
+      offset += sprintf(out_buf + offset, "\\%o", buf[i]);
   }
+  write(fd, out_buf, offset);
   WRITE_STRLIT(fd, "'>>/tmp/portapty\n");
+
+  return i;
 }
 
 static void upgrade_printf(int fd, char const* const* args) {
@@ -23,11 +49,8 @@ static void upgrade_printf(int fd, char const* const* args) {
   //
   // TODO: clever magic
   WRITE_STRLIT(fd, "echo -n>/tmp/portapty\n");
-  size_t i;
-  for (i = 0; i < source_len - (source_len % 32); i += 32)
-    upgrade_printf_buf(fd, source_buf + i, 32);
-  // Copy last part
-  upgrade_printf_buf(fd, source_buf + i, source_len % 32);
+  size_t i = 0;
+  while ((i += upgrade_printf_buf(fd, source_buf + i, source_len - i)) < source_len);
 
   WRITE_STRLIT(fd, "chmod +x /tmp/portapty\n/tmp/portapty client");
   for (; *args; ++args) {
