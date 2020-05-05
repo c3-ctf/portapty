@@ -1,5 +1,7 @@
 #include "common.h"
 
+#include <sys/stat.h>
+
 // Cyclic3's big TODO list of doom:
 //
 // * Set up channel multiplexing
@@ -158,7 +160,9 @@ found_ep_list:
 
   // Now we open the source file, and map it into memory
   source_fd = open(argv[0], O_RDONLY | O_CLOEXEC);
-  source_len = lseek(source_fd, 0, SEEK_END);
+  struct stat s;
+  fstat(source_fd, &s);
+  source_len = s.st_size; //lseek(source_fd, 0, SEEK_END);
   source_buf = mmap(0, source_len, PROT_READ, MAP_PRIVATE, source_fd, 0);
 
   switch (mode) {

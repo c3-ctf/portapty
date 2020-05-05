@@ -216,7 +216,7 @@ cleanup:
 }
 
 int run_gen(const char* key_path, const char* cert_path) {
-  int ret;
+  int ret = 0;
 
   mbedtls_entropy_context entropy;
   init_entropy(&entropy);
@@ -229,6 +229,9 @@ int run_gen(const char* key_path, const char* cert_path) {
 
   mbedtls_x509write_cert crt;
   mbedtls_x509write_crt_init(&crt);
+
+  mbedtls_x509_crt reloaded_crt;
+  mbedtls_x509_crt_init(&reloaded_crt);
 
   // If we init it to null, then a malloc can always be safely performed
   char* pem_buf = NULL;
@@ -275,11 +278,26 @@ int run_gen(const char* key_path, const char* cert_path) {
     fclose(file);
   }
 
+  int len;
+  // We can reuse the pem buf
+  if ((len = mbedtls_x509write_crt_der(&crt, (uint8_t*)pem_buf, PORTAPTY_CERT_PEM_LEN,
+                                       mbedtls_hmac_drbg_random, &rng)) < 0) {
+    PORTAPTY_PRINTF_ERR("unable to write der\n");
+  }
+  // To get the cert der, we need to re-read the cert
+  mbedtls_x509_crt_parse_file(&reloaded_crt, cert_path);
+  uint8_t hash[PORTAPTY_HASH_LEN];
+  get_hash(hash, reloaded_crt.raw.p, reloaded_crt.raw.len);
+  char fprint[PORTAPTY_HASH_STR_LEN];
+  encode_hash(fprint, hash);
+  PORTAPTY_PRINTF_IMPORTANT("fingerprint %s\n", fprint);
+
   // Spread some goodwill
   PORTAPTY_PRINTF_INFO("keygen successful\n");
 
 cleanup:
   free(pem_buf);
+  mbedtls_x509_crt_free(&reloaded_crt);
   mbedtls_x509write_crt_free(&crt);
   mbedtls_pk_free(&pk);
   mbedtls_hmac_drbg_free(&rng);

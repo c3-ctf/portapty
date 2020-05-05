@@ -61,12 +61,12 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
       PORTAPTY_PRINTF_ERR("could not open pty (errno %i)\n", err);
       goto cleanup;
     }
-    PORTAPTY_PRINTF_UPGRADED("%s available on %s\n", client_ep_str, name);
+    PORTAPTY_PRINTF_IMPORTANT("%s available on %s\n", client_ep_str, name);
   }
 
   portapty_read_loop(&ssl_ctx, client, master, master);
 
-  PORTAPTY_PRINTF_UPGRADED("closing %s (%s)\n", client_ep_str, name);
+  PORTAPTY_PRINTF_IMPORTANT("closing %s (%s)\n", client_ep_str, name);
 
   if (!ctx->driver) close(slave);
   close(master);
@@ -163,7 +163,7 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
   uint8_t hash_buf[PORTAPTY_HASH_LEN];
   get_hash(hash_buf, ctx.crt.raw.p, ctx.crt.raw.len);
   encode_hash(fingerprint, hash_buf);
-  PORTAPTY_PRINTF_INFO("loaded cert with fingerprint %s\n", fingerprint);
+  PORTAPTY_PRINTF_IMPORTANT("loaded cert with fingerprint %s\n", fingerprint);
 
   // Work out what args we forward to the client
   args[0] = "cert";

@@ -32,17 +32,15 @@
 #define PORTAPTY_HELLO "portapty"
 #define PORTAPTY_HELLO_LEN (sizeof(PORTAPTY_HELLO) - 1)
 
-#define PORTAPTY_PRINTF_NORMAL(...) printf("[shell   ] " __VA_ARGS__)
-#define PORTAPTY_PRINTF_UPGRADED(...) printf("[portapty] " __VA_ARGS__)
+#define PORTAPTY_PRINTF_IMPORTANT(...) printf("[portapty] " __VA_ARGS__)
+#define PORTAPTY_PRINTF_ERR(...)       printf("[ERROR   ] " __VA_ARGS__)
 
 #ifdef PORTAPTY_QUIET
-#define PORTAPTY_PRINTF_ERR(...)
 #define PORTAPTY_PRINTF_WARN(...)
 #define PORTAPTY_PRINTF_INFO(...)
 #else
-#define PORTAPTY_PRINTF_ERR(...)      printf("[ERROR   ] " __VA_ARGS__)
-#define PORTAPTY_PRINTF_WARN(...)     printf("[WARNING ] " __VA_ARGS__)
-#define PORTAPTY_PRINTF_INFO(...)     printf("[INFO    ] " __VA_ARGS__)
+#define PORTAPTY_PRINTF_WARN(...)      printf("[WARNING ] " __VA_ARGS__)
+#define PORTAPTY_PRINTF_INFO(...)      printf("[INFO    ] " __VA_ARGS__)
 #endif
 #define WRITE_STRLIT(FD, STR) write(FD, STR, sizeof(STR) - 1)
 #define WRITE_STR(FD, STR) write(FD, STR, strlen(STR))
