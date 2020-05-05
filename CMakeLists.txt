@@ -36,7 +36,7 @@ else()
   add_definitions(-DPORTAPTY_QUIET=1)
   set(CMAKE_C_FLAGS "-static")
   set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-  set(CMAKE_C_FLAGS_RELEASE "-Os -s -ffunction-sections -fdata-sections -Wl,--gc-sections -DNDEBUG")
+  set(CMAKE_C_FLAGS "-specs \"${CMAKE_CURRENT_SOURCE_DIR}/musl-gcc.specs\" -Os -s -ffunction-sections -fdata-sections -m32 -Wl,-melf_i386 -Wl,--gc-sections -DNDEBUG")
 #  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Os -ffunction-sections -fdata-sections -Wl,--gc-sections -DNDEBUG")
 endif()
 
@@ -50,7 +50,7 @@ add_subdirectory(mbedtls)
 
 
 add_executable(portapty src/main.c src/net.c src/upgrade.c src/crypto.c src/server.c src/client.c)
-target_include_directories(portapty PUBLIC "/usr/include/x86_64-linux-musl")
+target_include_directories(portapty PUBLIC "/usr/include/i386-linux-musl")
 target_link_libraries(portapty mbedtls util ${PORTAPTY_EXTRA})
 
 add_executable(mbedtls-err src/err.c)
