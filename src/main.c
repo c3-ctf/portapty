@@ -4,29 +4,8 @@ int source_fd;
 const uint8_t* source_buf;
 off_t source_len;
 
-//int test() {
-//  uint8_t der[PORTAPTY_CERT_BUF_LEN];
-//  mbedtls_pk_context pk_ctx;
-//  mbedtls_entropy_context entropy_ctx;
-//  mbedtls_hmac_drbg_context drbg_ctx;
-//  init_entropy(&entropy_ctx);
-//  init_drbg(&drbg_ctx, &entropy_ctx);
-
-//  mbedtls_pk_setup(&pk_ctx, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
-//  mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256K1, mbedtls_pk_ec(pk_ctx), mbedtls_hmac_drbg_random, &drbg_ctx);
-
-//  int len = gen_self_signed_cert(der, &pk_ctx, &drbg_ctx);
-
-//  char b64[PORTAPTY_HASH_STR_LEN];
-//  get_hash(b64, der, len);
-
-//  printf("%s\n", b64);
-//  return 0;
-//}
-
 // Cyclic3's big TODO list of doom:
 //
-// * Set up channel multiplexing
 // * Add routing for pivoting (because it will make me look cool)
 // * Disconnect recovery or smth idk
 
@@ -138,11 +117,11 @@ found_ep_list:
 
 print_help:
 #ifndef NDEBUG
-  printf("%s <client|server|keygen> [OPTIONS]\n", argv[0]);
+  printf("%s <client|server|keygen> OPTIONS\n", argv[0]);
   printf("Options:\n");
-  printf("client: [cert CERTHASH] eps IP PORT [IP PORT]...\n");
-  printf("server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] eps IP PORT [IP PORT]...\n");
-  printf("keygen: [cert CERTFILE] [key KEYFILE]\n");
+  printf("    client: [cert CERTHASH] eps IP PORT [IP PORT]...\n");
+  printf("    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] eps IP PORT [IP PORT]...\n");
+  printf("    keygen: [cert CERTFILE] [key KEYFILE]\n");
 #endif
   return 1;
 }
