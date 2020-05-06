@@ -24,9 +24,13 @@ int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64
 
   union handshake_config handshake_cfg;
   char cmdline[PORTAPTY_CMD_WIDTH];
-  handshake_cfg.client.cmdline_ret = &cmdline;
+  char hostname[PORTAPTY_MAX_HOST_LEN];
   uint8_t is_pty;
+  gethostname(hostname, PORTAPTY_MAX_HOST_LEN);
+
+  handshake_cfg.client.cmdline_ret = &cmdline;
   handshake_cfg.client.is_pty = &is_pty;
+  handshake_cfg.client.hostname = hostname;
 
   if (cert_hash_b64) {
     uint8_t hash[PORTAPTY_HASH_LEN];

@@ -27,11 +27,13 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
   mbedtls_ssl_init(&ssl_ctx);
 
   union handshake_config cfg;
+  char hostname[PORTAPTY_MAX_HOST_LEN];
   cfg.server.pk = &ctx->pk_ctx;
   cfg.server.crt = &ctx->crt;
   // Default to /bin/sh
   cfg.server.cmdline = ctx->cmd ? ctx->cmd : "/bin/sh";
   cfg.server.is_pty = ctx->is_pty;
+  cfg.server.hostname_ret = &hostname;
 
   if ((err = do_handshake(client, &ssl_ctx, &ssl_cfg, &rng, 1, &cfg))) {
     PORTAPTY_PRINTF_ERR("handshake failed (err %i)\n", err);
@@ -61,7 +63,7 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
       PORTAPTY_PRINTF_ERR("could not open pty (errno %i)\n", err);
       goto cleanup;
     }
-    PORTAPTY_PRINTF_IMPORTANT("%s available on %s\n", client_ep_str, name);
+    PORTAPTY_PRINTF_IMPORTANT("%s (%s) available on %s\n", hostname, client_ep_str, name);
   }
 
   portapty_read_loop(&ssl_ctx, client, master, master);

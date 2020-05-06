@@ -95,11 +95,15 @@ int portapty_load(const char* file, const uint8_t** buf, size_t* len);
 // The infimum posix ARG_MAX
 #define PORTAPTY_CMD_WIDTH 4096
 
+// Again, infimum host length
+#define PORTAPTY_MAX_HOST_LEN 256
+
 union handshake_config {
   struct {
     mbedtls_x509_crt* crt;
     mbedtls_pk_context* pk;
     const char* cmdline;
+    char (*hostname_ret)[PORTAPTY_MAX_HOST_LEN];
     // Use a uint8_t for easier serialisation
     uint8_t is_pty;
   } server;
@@ -108,6 +112,7 @@ union handshake_config {
     const uint8_t (*fingerprint)[PORTAPTY_HASH_LEN];
     char (*cmdline_ret)[PORTAPTY_CMD_WIDTH];
     uint8_t* is_pty;
+    const char* hostname;
   } client;
 };
 

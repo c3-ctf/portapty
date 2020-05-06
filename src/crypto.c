@@ -183,14 +183,32 @@ int do_handshake(int sock, mbedtls_ssl_context* ssl_ctx, mbedtls_ssl_config* ssl
     goto cleanup;
   }
 
-  // Now to send or receive the pty indicator and cmdline
+  // Now to send or receive the pty indicator, cmdline and hostname
   if (is_server) {
     mbedtls_ssl_write(ssl_ctx, &cfg->server.is_pty, 1);
-    // Make little endian
-    uint16_t len = strlen(cfg->server.cmdline);
-    uint8_t le_len[2] = { len & 0xFF, len >> 8 };
-    mbedtls_ssl_write(ssl_ctx, le_len, 2);
-    mbedtls_ssl_write(ssl_ctx, (const uint8_t*)cfg->server.cmdline, len);
+    {
+      // Make little endian
+      uint16_t len = strlen(cfg->server.cmdline);
+      uint8_t le_len[2] = { len & 0xFF, len >> 8 };
+      mbedtls_ssl_write(ssl_ctx, le_len, 2);
+      mbedtls_ssl_write(ssl_ctx, (const uint8_t*)cfg->server.cmdline, len);
+    }
+    {
+      // Make little endian
+      uint8_t le_len[2];
+      if ((err = mbedtls_ssl_read(ssl_ctx, le_len, 2) < 2))
+        goto cleanup;
+      uint16_t len = (uint16_t)le_len[0] | ((uint16_t)le_len[1] << 8);
+      // We need to leave a byte for the trailing null
+      if (len >= PORTAPTY_CMD_WIDTH) {
+        err = 1; goto cleanup;
+      }
+      if (mbedtls_ssl_read(ssl_ctx, (uint8_t*)*cfg->server.hostname_ret, len) != len) {
+        err = 1; goto cleanup;
+      }
+      // Add trailing null
+      (*cfg->server.hostname_ret)[len] = 0;
+    }
   }
   else {
     if (mbedtls_ssl_read(ssl_ctx, cfg->client.is_pty, 1) != 1) {
@@ -209,6 +227,13 @@ int do_handshake(int sock, mbedtls_ssl_context* ssl_ctx, mbedtls_ssl_config* ssl
       err = 1; goto cleanup;
     }
     (*cfg->client.cmdline_ret)[len] = 0;
+    {
+      // Make little endian
+      uint16_t len = strlen(cfg->client.hostname);
+      uint8_t le_len[2] = { len & 0xFF, len >> 8 };
+      mbedtls_ssl_write(ssl_ctx, le_len, 2);
+      mbedtls_ssl_write(ssl_ctx, (const uint8_t*)cfg->client.hostname, len);
+    }
   }
 
 cleanup:
