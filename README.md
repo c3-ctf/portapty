@@ -93,8 +93,8 @@ The release client has a `while(1)` loop to stop temporary disconnects from mess
 portapty relay bind :: 42069 to 10.0.0.1 42069 to 10.0.0.2 42069
 # Connect to the first server that accepts us
 portapty client to 10.0.0.1 42069 to 10.0.0.2 42069
-# Tell upgraded clients to try multiple addresses 
-portapty server bind 10.0.0.1 42069 advert 10.0.0.2 42069
+# Tell upgraded clients to try multiple addresses (note the repeated ep in bind and advert)
+portapty server bind 10.0.0.1 42069 advert 10.0.0.1 42069 advert 10.0.0.2 42069
 ```
 
 ## Disclaimer
