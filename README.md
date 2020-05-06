@@ -83,12 +83,18 @@ portapty relay bind 192.168.0.1 42069 to 10.0.0.10 42069
 portapty client cert FinGeRpRInt= to 192.168.0.1 42069
 ```
 
-Since the client is encrypted end-to-end, this unencrypted relay usage is secure. However, `relay` could also be used as a port forwarder, and so would need encryption:
-```bash
-# Server you wish to receive connections on
-portapty expose key portapty.key cert portapty.crt bind 10.0.0.1 42069 to ::1 8080
-# Server you are proxying for
-portapty relay cert FinGeRpRInt= bind :: 8080 to 10.0.0.1 42069
+Since the client is encrypted end-to-end, this unencrypted relay usage is secure. However, `relay` could also be used as a port forwarder, which would not have encryption. I'm not sure how to encrypt this well bidirectionally: feel free to submit a pull request!
+
+### High availability
+The release client has a `while(1)` loop to stop temporary disconnects from messing up your network, and paired with multiple endpoint specifications, this can be used to achieve a very resiliant network.
+
+```
+# Relay to the first accepting server
+portapty relay bind :: 42069 to 10.0.0.1 42069 to 10.0.0.2 42069
+# Connect to the first server that accepts us
+portapty client to 10.0.0.1 42069 to 10.0.0.2 42069
+# Tell upgraded clients to try multiple addresses 
+portapty server bind 10.0.0.1 42069 advert 10.0.0.2 42069
 ```
 
 ## Disclaimer
