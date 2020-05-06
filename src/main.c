@@ -234,7 +234,7 @@ print_help:
   printf("%s {client|server|keygen|relay} [OPTIONS]\n", argv[0]);
   printf("Options:\n");
   printf("    client: [cert CERTHASH] to IP PORT [to IP PORT]...\n");
-  printf("    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] [pty on|off] [persist on|off] bind IP PORT [{bind|advert} IP PORT]...\n");
+  printf("    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] [pty {on|off}] [persist {on|off}] bind IP PORT [{bind|advert} IP PORT]...\n");
   printf("    keygen: [cert CERTFILE] [key KEYFILE]\n");
   printf("    relay:  bind IP PORT to IP PORT [{bind|to} IP PORT]...\n");
 //#endif
