@@ -149,9 +149,10 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
     // I'm malloc'ing, as 16384 is a lot of bytes for the stack
     uint8_t* tmp_ber = malloc(PORTAPTY_CERT_BUF_LEN);
     int tmp_ber_len = gen_self_signed_cert(tmp_ber, &ctx.pk_ctx, &rng);
-//    tmp_ber_len = 261;
 
     if (tmp_ber_len < 0 || (ret = mbedtls_x509_crt_parse_der_nocopy(&ctx.crt, tmp_ber, tmp_ber_len))) {
+      if (!ret)
+        ret = tmp_ber_len;
       PORTAPTY_PRINTF_ERR("failed to create self-signed certificate (%i)\n", ret ? ret : tmp_ber_len);
       // We failed, so we have to clean up the buffer ourselves
       free(tmp_ber);
@@ -178,48 +179,10 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
   memcpy(&args[3], eps_elems, eps_len * sizeof(const char*));
 
   // INET6 means that we get to do both v4 and v6
-  int server = socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+  int server = portapty_bind_all(eps_elems, eps_len);
   if (server < 0) {
-    err = errno;
-    PORTAPTY_PRINTF_ERR("could not create socket (errno %i)\n", err);
-    ret = 1; goto cleanup;
-  }
-  // We don't care if this fails; it's nice if it works, but ah well
-  //
-  // This DOES leave us open to port hijacking (cool!), but means that if we screw up,
-  // we don't need to wait for 1-2 years
-  int reuse_port_val = 1;
-  setsockopt(server, SOL_SOCKET, SO_REUSEPORT, &reuse_port_val, sizeof(reuse_port_val));
-
-  // Allow IPv4
-  //
-  // Again, we want this, but it is not necessary.
-  // This is already allowed by default on Linux.
-  int v6_only_val = 0;
-  setsockopt(server, IPPROTO_IPV6, IPV6_V6ONLY, &v6_only_val, sizeof(v6_only_val));
-
-  // Actually bind the socket, and handle failure
-  for (int i = 0; i < eps_len; i += 2) {
-    // Try to parse socket, and handle the many forms of screwup that arise thereof
-    struct sockaddr_in6 ep;
-    switch(str2sockaddr(&ep, eps_elems[i], eps_elems[i + 1])) {
-      case 0: break;
-      case 1: { PORTAPTY_PRINTF_WARN("could not parse ip %i\n", i / 2); } continue;
-      case 2: { PORTAPTY_PRINTF_WARN("could not parse port %i\n", i / 2); } continue;
-      default: { PORTAPTY_PRINTF_WARN("unknown error for ep %i\n", i / 2); } continue;
-    }
-
-    if (bind(server, (struct sockaddr*)&ep, sizeof(ep))) {
-      err = errno;
-      PORTAPTY_PRINTF_WARN("could not bind to ep %i (errno %i)\n", i / 2, err);
-    }
-  }
-
-
-  // Ur not 1337 enough to need more than 1337 connections m9
-  if (listen(server, 1337)) {
-    PORTAPTY_PRINTF_ERR("could not listen (errno %i)\n", err);
-    ret = 1; goto cleanup;
+    ret = server;
+    goto cleanup;
   }
 
   PORTAPTY_PRINTF_INFO("ready\n");
@@ -228,9 +191,9 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
   while (1) {
 
 #ifdef NDEBUG
-#define PORTAPTY_CLIENT_DROP exit(0)
+#define PORTAPTY_CLIENT_DROP { exit(0); }
 #else
-#define PORTAPTY_CLIENT_DROP close(client); continue
+#define PORTAPTY_CLIENT_DROP { close(client); continue; }
 #endif
     struct sockaddr_in6 client_sa;
     socklen_t client_sa_len = sizeof(client_sa);

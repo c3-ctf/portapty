@@ -1,6 +1,6 @@
 #pragma once
 
-
+#define _GNU_SOURCE
 #include <pty.h>
 
 #include <mbedtls/error.h>
@@ -55,6 +55,24 @@
 int sockaddr2str(const struct sockaddr_in6* ep, char buf[PORTAPTY_SOCKADDR_STRLEN]);
 /// @returns 0 on success, 1 on a bad address and 2 on a bad port
 int str2sockaddr(struct sockaddr_in6* ep, const char* addr, const char* port);
+/// @returns the socket on success
+int portapty_bind_all(const char** eps_elems, size_t eps_len);
+/// @returns the socket on success
+int portapty_connect_first(const char** eps_elems, size_t eps_len);
+
+
+
+enum portapty_poll_t {
+  Portapty_Poll_Nothing     = 0b0000,
+
+  Portapty_Poll_ClosedMask  = 0b0011,
+  Portapty_Poll_FirstClosed = 0b0001,
+  Portapty_Poll_SecondClosed= 0b0010,
+
+  Portapty_Poll_FirstData   = 0b0100,
+  Portapty_Poll_SecondData  = 0b1000,
+};
+enum portapty_poll_t portapty_poll(int fd_0, int fd_1);
 void portapty_read_loop(mbedtls_ssl_context* ssl_ctx, int client_fd, int read_fd, int write_fd);
 int portapty_fork_pipe(int* read_fd, int* write_fd, const char* cmdline);
 
@@ -103,3 +121,4 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
                const char* driver, const char* cmd, uint8_t is_pty, const char* plod);
 int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64);
 int run_gen(const char* key_path, const char* cert_path);
+int run_relay(const char** bind_elems, size_t bind_len, const char** to_elems, size_t to_len);

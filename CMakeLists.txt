@@ -43,7 +43,7 @@ endif()
 add_subdirectory(mbedtls)
 
 
-add_executable(portapty src/main.c src/net.c src/upgrade.c src/crypto.c src/server.c src/client.c)
+add_executable(portapty src/main.c src/net.c src/upgrade.c src/crypto.c src/server.c src/client.c src/relay.c)
 target_link_libraries(portapty mbedtls util)
 if (NOT PORTAPTY_DEBUG)
   target_link_options(portapty PUBLIC "-s;-Wl,--gc-sections;-Wl,--as-needed;-Wl,-melf_i386")

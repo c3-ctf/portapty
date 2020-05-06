@@ -11,35 +11,12 @@ int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64
 #endif
 
   int err = 0;
-
-  int client = socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
-  // Allow IPv4
-  int v6_only_val = 0;
-  setsockopt(client, IPPROTO_IPV6, IPV6_V6ONLY, &v6_only_val, sizeof(v6_only_val));
-
-  for (int i = 0; i < eps_len; i += 2) {
-    // Try to parse socket, and handle the many forms of screwup that arise thereof
-    struct sockaddr_in6 ep;
-    switch(str2sockaddr(&ep, eps_elems[i], eps_elems[i + 1])) {
-      case 0: break;
-      case 1: { PORTAPTY_PRINTF_WARN("could not parse ip %i\n", i / 2); } continue;
-      case 2: { PORTAPTY_PRINTF_WARN("could not parse port %i\n", i / 2); } continue;
-      default: { PORTAPTY_PRINTF_WARN("unknown error for ep %i\n", i / 2); } continue;
-    }
-
-    if (connect(client, (struct sockaddr*)&ep, sizeof(ep))) {
-      err = errno;
-      PORTAPTY_PRINTF_INFO("could not connect to ep %i (errno %i)\n", i / 2, err);
-    }
-    else
-      goto connected;
+  int client;
+  if ((client = portapty_connect_first(eps_elems, eps_len)) < 0) {
+    // We can return because we have not allocated anything
+    return err;
   }
-  // If we get here, then nothing connected
-  PORTAPTY_PRINTF_ERR("could not connect to any ep\n");
-  // We can return here because nothing has been allocated
-  return 1;
 
-connected: {}
   mbedtls_entropy_context entropy;
   init_entropy(&entropy);
 

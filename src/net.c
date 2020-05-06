@@ -90,42 +90,28 @@ int str2sockaddr(struct sockaddr_in6* ep, const char* addr, const char* port) {
   return 0;
 }
 
-enum portapty_poll_t {
-  Portapty_Poll_Nothing     = 0b0000,
-
-  Portapty_Poll_ClosedMask  = 0b0011,
-  Portapty_Poll_NetClosed   = 0b0001,
-  Portapty_Poll_PtyClosed   = 0b0010,
-
-  Portapty_Poll_NetData     = 0b0100,
-  Portapty_Poll_PtyData     = 0b1000,
-};
-
-static enum portapty_poll_t portapty_poll(mbedtls_ssl_context* ssl_ctx, int net_fd, int pty_fd) {
-  if (mbedtls_ssl_get_bytes_avail(ssl_ctx) > 0)
-    return Portapty_Poll_NetData;
-
+enum portapty_poll_t portapty_poll(int first_fd, int secnd_fd) {
   enum portapty_poll_t ret = Portapty_Poll_Nothing;
 
   uint8_t testbuf;
 
   fd_set read_fds;
   FD_ZERO(&read_fds);
-  FD_SET(net_fd, &read_fds);
-  FD_SET(pty_fd, &read_fds);
+  FD_SET(first_fd, &read_fds);
+  FD_SET(secnd_fd, &read_fds);
 
   fd_set except_fds = read_fds;
 
-  int max_fd = net_fd > pty_fd ? net_fd : pty_fd;
+  int max_fd = first_fd > secnd_fd ? first_fd : secnd_fd;
 
   struct timeval poll_period = PORTAPTY_POLL_PERIOD;
 
   // TLS cannot get any new data without socket data being available
   if (select(max_fd + 1, &read_fds, NULL, &except_fds, &poll_period) > 0) {
-    ret |= (FD_ISSET(net_fd, &except_fds) ? Portapty_Poll_NetClosed : 0);
-    ret |= (FD_ISSET(pty_fd, &except_fds) ? Portapty_Poll_PtyClosed : 0);
-    ret |= (FD_ISSET(net_fd, &read_fds  ) ? Portapty_Poll_NetData   : 0);
-    ret |= (FD_ISSET(pty_fd, &read_fds  ) ? Portapty_Poll_PtyData   : 0);
+    ret |= (FD_ISSET(first_fd, &except_fds) ? Portapty_Poll_FirstClosed  : 0);
+    ret |= (FD_ISSET(secnd_fd, &except_fds) ? Portapty_Poll_SecondClosed : 0);
+    ret |= (FD_ISSET(first_fd, &read_fds  ) ? Portapty_Poll_FirstData    : 0);
+    ret |= (FD_ISSET(secnd_fd, &read_fds  ) ? Portapty_Poll_SecondData   : 0);
   }
 
   // Probe the fds to determine if they are closed
@@ -149,8 +135,8 @@ void portapty_read_loop(mbedtls_ssl_context* ssl_ctx, int client_fd, int read_fd
     err = fcntl(read_fd, F_SETFL, pty_flags);
   }
 
-  int poll_result;
-  while (!((poll_result = portapty_poll(ssl_ctx, client_fd, read_fd)) & Portapty_Poll_ClosedMask)) {
+  int poll_result = Portapty_Poll_FirstData;
+  while (mbedtls_ssl_get_bytes_avail(ssl_ctx) || !((poll_result = portapty_poll(client_fd, read_fd)) & Portapty_Poll_ClosedMask)) {
     if (!poll_result)
       continue;
 
@@ -158,20 +144,120 @@ void portapty_read_loop(mbedtls_ssl_context* ssl_ctx, int client_fd, int read_fd
     int pty_n_avail;
     int n_read;
 
-    if (poll_result & Portapty_Poll_NetData) {
-      if((n_read = mbedtls_ssl_read(ssl_ctx, buf, sizeof(buf))) > 0) { //printf("< %s\n", buf);
-        write(write_fd, buf, n_read); }
+    errno=0;
+    // This will still be true if we miss the poll
+    if (poll_result & Portapty_Poll_FirstData) {
+      if ((n_read = mbedtls_ssl_read(ssl_ctx, buf, sizeof(buf))))
+        write(write_fd, buf, n_read);
       // If this happens, the socket has actually errored
-      else if (n_read != EWOULDBLOCK)
+      else if (errno != EWOULDBLOCK)
         break;
     }
 
-    if (poll_result & Portapty_Poll_PtyData) {
-      if ((n_read = read(read_fd, buf, sizeof(buf))) > 0) { //printf("> %s\n", buf);
-        mbedtls_ssl_write(ssl_ctx, buf, n_read);}
+    if (poll_result & Portapty_Poll_SecondData) {
+      while ((n_read = read(read_fd, buf, sizeof(buf))) > 0)
+        mbedtls_ssl_write(ssl_ctx, buf, n_read);
       // If this happens, the socket has actually errored
-      else if (n_read != EWOULDBLOCK)
+      if (errno != EWOULDBLOCK)
         break;
     }
   }
+}
+
+int portapty_bind_all(const char** eps_elems, size_t eps_len) {
+  int err = 0;
+
+  int server = socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+  if (server < 0) {
+    err = errno;
+    PORTAPTY_PRINTF_ERR("could not create socket (errno %i)\n", err);
+    // Skip socket closing
+    return err;
+  }
+  // We don't care if this fails; it's nice if it works, but ah well
+  //
+  // This DOES leave us open to port hijacking (cool!), but means that if we screw up,
+  // we don't need to wait for 1-2 years
+  int reuse_port_val = 1;
+  setsockopt(server, SOL_SOCKET, SO_REUSEPORT, &reuse_port_val, sizeof(reuse_port_val));
+
+  // Allow IPv4
+  //
+  // Again, we want this, but it is not necessary.
+  // This is already allowed by default on Linux.
+  int v6_only_val = 0;
+  setsockopt(server, IPPROTO_IPV6, IPV6_V6ONLY, &v6_only_val, sizeof(v6_only_val));
+
+  // Actually bind the socket, and handle failure
+  for (int i = 0; i < eps_len; i += 2) {
+    // Try to parse socket, and handle the many forms of screwup that arise thereof
+    struct sockaddr_in6 ep;
+    switch(str2sockaddr(&ep, eps_elems[i], eps_elems[i + 1])) {
+      case 0: break;
+      case 1: { PORTAPTY_PRINTF_WARN("could not parse ip %i\n", i / 2); } continue;
+      case 2: { PORTAPTY_PRINTF_WARN("could not parse port %i\n", i / 2); } continue;
+      default: { PORTAPTY_PRINTF_WARN("unknown error for ep %i\n", i / 2); } continue;
+    }
+
+    if (bind(server, (struct sockaddr*)&ep, sizeof(ep))) {
+      err = errno;
+      PORTAPTY_PRINTF_WARN("could not bind to ep %i (errno %i)\n", i / 2, err);
+    }
+  }
+
+  // Ur not 1337 enough to need more than 1337 connections m9
+  if (listen(server, 1337)) {
+    err = errno;
+    PORTAPTY_PRINTF_ERR("could not listen (errno %i)\n", err);
+    goto cleanup;
+  }
+
+  cleanup:
+
+  if (!err)
+    return server;
+  else {
+    close(server);
+    // Force it to be negative, we cannot look like a real fd!
+    return err > 0 ? -err : err;
+  }
+}
+
+int portapty_connect_first(const char** eps_elems, size_t eps_len) {
+  int err = 0;
+
+  int client = socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+  if (client < 0) {
+    err = errno;
+    PORTAPTY_PRINTF_ERR("could not create socket (errno %i)\n", err);
+    return -err;
+  }
+  // Allow IPv4
+  int v6_only_val = 0;
+  setsockopt(client, IPPROTO_IPV6, IPV6_V6ONLY, &v6_only_val, sizeof(v6_only_val));
+
+  for (int i = 0; i < eps_len; i += 2) {
+    // Try to parse socket, and handle the many forms of screwup that arise thereof
+    struct sockaddr_in6 ep;
+    switch(str2sockaddr(&ep, eps_elems[i], eps_elems[i + 1])) {
+      case 0: break;
+      case 1: { PORTAPTY_PRINTF_WARN("could not parse ip %i\n", i / 2); } continue;
+      case 2: { PORTAPTY_PRINTF_WARN("could not parse port %i\n", i / 2); } continue;
+      default: { PORTAPTY_PRINTF_WARN("unknown error for ep %i\n", i / 2); } continue;
+    }
+
+    if (connect(client, (struct sockaddr*)&ep, sizeof(ep))) {
+      err = errno;
+      PORTAPTY_PRINTF_INFO("could not connect to ep %i (errno %i)\n", i / 2, err);
+    }
+    else
+      goto connected;
+  }
+  // If we get here, then nothing connected
+  PORTAPTY_PRINTF_ERR("could not connect to any ep\n");
+  close(client);
+  return -ECONNREFUSED;
+
+  connected:
+  return client;
 }

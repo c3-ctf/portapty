@@ -4,8 +4,6 @@
 
 // Cyclic3's big TODO list of doom:
 //
-// * Set up channel multiplexing
-// * Add routing for pivoting (because it will make me look cool)
 // * Disconnect recovery or smth idk
 
 int source_fd;
@@ -13,7 +11,7 @@ const uint8_t* source_buf;
 off_t source_len;
 
 enum mode {
-  Portapty_Client, Portapty_Server, Portapty_Keygen
+  Portapty_Client, Portapty_Server, Portapty_Keygen, Portapty_Relay
 };
 
 int main(const int argc, const char* argv[]) {
@@ -25,6 +23,18 @@ int main(const int argc, const char* argv[]) {
   // Disabling this means that we can handle disconnects socket by socket
   signal(SIGPIPE, SIG_IGN);
 
+  // For cleanup purposes, it makes sense to put the arguments here
+  int is_client;
+  const char* cert_str = NULL;
+  const char* key_str = NULL;
+  const char* driver = NULL;
+  const char* cmd = NULL;
+  // Better to be safe than sorry
+  const char** bind = malloc(argc * sizeof(const char*));
+  size_t bind_len = 0;
+  const char** to = malloc(argc * sizeof(const char*));
+  size_t to_len = 0;
+  int is_pty = -1;
 
   if (argc < 2)
     goto print_help;
@@ -40,24 +50,19 @@ int main(const int argc, const char* argv[]) {
   else if (!strcmp(argv[1], "keygen")) {
     mode = Portapty_Keygen;
   }
+  else if (!strcmp(argv[1], "relay")) {
+    mode = Portapty_Relay;
+  }
   else {
     PORTAPTY_PRINTF_ERR("invalid mode\n");
     goto print_help;
   }
 
   // Now parse the arguments
-  int is_client;
-  const char* cert_str = NULL;
-  const char* key_str = NULL;
-  const char* driver = NULL;
-  const char* cmd = NULL;
-  int is_pty = -1;
-  int eps_offset;
-  int eps_len;
   // Since all options take at least one argument, we can iterate up to argc - 1,
   // so we don't have to bounds check
-  for (eps_offset = 2; eps_offset < argc - 1; ++eps_offset) {
-    if (!strcmp(argv[eps_offset], "driver")) {
+  for (int i = 2; i < argc - 1; ++i) {
+    if (!strcmp(argv[i], "driver")) {
       if (mode != Portapty_Server) {
         PORTAPTY_PRINTF_ERR("driver can only be specified in server mode\n");
         goto print_help;
@@ -65,63 +70,89 @@ int main(const int argc, const char* argv[]) {
       // We disable the pty by default for a driver
       if (is_pty < 0)
         is_pty = 0;
-      driver = argv[++eps_offset];
+      driver = argv[++i];
     }
-    else if (!strcmp(argv[eps_offset], "cert"))
-      cert_str = argv[++eps_offset];
-    else if (!strcmp(argv[eps_offset], "key")) {
+    else if (!strcmp(argv[i], "cert"))
+      cert_str = argv[++i];
+    else if (!strcmp(argv[i], "key")) {
       if (mode == Portapty_Client) {
         PORTAPTY_PRINTF_ERR("key cannot be specified in client mode\n");
         goto print_help;
       }
-      key_str = argv[++eps_offset];
+      key_str = argv[++i];
     }
-    else if (!strcmp(argv[eps_offset], "pty")) {
+    else if (!strcmp(argv[i], "pty")) {
       if (mode == Portapty_Client) {
         PORTAPTY_PRINTF_ERR("pty cannot be specified in client mode\n");
         goto print_help;
       }
-      ++eps_offset;
-      if (!strcmp(argv[eps_offset], "on"))
+      ++i;
+      if (!strcmp(argv[i], "on"))
         is_pty = 1;
-      else if (!strcmp(argv[eps_offset], "off"))
+      else if (!strcmp(argv[i], "off"))
         is_pty = 0;
       else {
         PORTAPTY_PRINTF_ERR("invalid pty mode");
         goto print_help;
       }
     }
-    else if (!strcmp(argv[eps_offset], "cmd")) {
+    else if (!strcmp(argv[i], "cmd")) {
       if (mode != Portapty_Server) {
         PORTAPTY_PRINTF_ERR("cmd can only be specified in server mode\n");
         goto print_help;
       }
-      cmd = argv[++eps_offset];
+      cmd = argv[++i];
     }
-    else if (!strcmp(argv[eps_offset], "eps")) {
-      if (mode == Portapty_Keygen) {
-        PORTAPTY_PRINTF_ERR("eps cannot be specified in keygen mode\n");
+    else if (!strcmp(argv[i], "bind")) {
+      if (mode == Portapty_Keygen || mode == Portapty_Client) {
+        PORTAPTY_PRINTF_ERR("bind cannot be specified in keygen or client mode\n");
         goto print_help;
       }
-      goto found_ep_list;
+      bind[bind_len++] = argv[++i];
+      // If we hit the end for this double arg, fail
+      if (i == argc) {
+        PORTAPTY_PRINTF_ERR("port not given\n");
+      }
+      bind[bind_len++] = argv[++i];
+    }
+    else if (!strcmp(argv[i], "to")) {
+      if (mode == Portapty_Keygen || mode == Portapty_Server) {
+        PORTAPTY_PRINTF_ERR("to cannot be specified in keygen or server mode\n");
+        goto print_help;
+      }
+      to[to_len++] = argv[++i];
+      // If we hit the end for this double arg, fail
+      if (i == argc) {
+        PORTAPTY_PRINTF_ERR("port not given\n");
+      }
+      to[to_len++] = argv[++i];
     }
     else {
-      PORTAPTY_PRINTF_ERR("invalid option %s\n", argv[eps_offset]);
+      PORTAPTY_PRINTF_ERR("invalid option %s\n", argv[i]);
       goto print_help;
     }
   }
-  // If we get here, we did not find the ep list delimiter
-  if (mode != Portapty_Keygen) {
-    PORTAPTY_PRINTF_ERR("missing ep list\n");
-    goto print_help;
-    // This label can be in an if, as we have the same conditions as before
-found_ep_list:
-    ++eps_offset;
-
-    if ((eps_len = argc - eps_offset) % 2) {
-      PORTAPTY_PRINTF_ERR("mismatched eps\n");
-      goto print_help;
-    }
+  // Handle the multiargs
+  switch (mode) {
+    case Portapty_Server: {
+      if (!bind_len) {
+        PORTAPTY_PRINTF_ERR("missing bind list\n");
+        goto print_help;
+      }
+    } break;
+    case Portapty_Client: {
+      if (!to_len) {
+        PORTAPTY_PRINTF_ERR("missing bind list\n");
+        goto print_help;
+      }
+    } break;
+    case Portapty_Relay: {
+      if (!to_len || !bind_len) {
+        PORTAPTY_PRINTF_ERR("need both to and bind lists\n");
+        goto print_help;
+      }
+    } break;
+    default: {}
   }
 
   // If we didn't decide on a is_pty, enable it
@@ -129,21 +160,25 @@ found_ep_list:
     is_pty = 1;
 
   switch (mode) {
-    case Portapty_Client: return run_client(argv + eps_offset, argc - eps_offset, cert_str);
-    case Portapty_Server: return run_server(argv + eps_offset, argc - eps_offset, key_str, cert_str,
+    case Portapty_Client: return run_client(to, to_len, cert_str);
+    case Portapty_Server: return run_server(bind, bind_len, key_str, cert_str,
                                             driver, cmd, is_pty, argv[0]);
     case Portapty_Keygen: return run_gen(key_str, cert_str);
+    case Portapty_Relay: return run_relay(bind, bind_len, to, to_len);
     default: abort();
   }
 
 print_help:
+  free(to);
+  free(bind);
   // This is helpful even outside of debug mode
 //#ifndef NDEBUG
   printf("%s <client|server|keygen> [OPTIONS]\n", argv[0]);
   printf("Options:\n");
-  printf("    client: [cert CERTHASH] eps IP PORT [IP PORT]...\n");
-  printf("    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] [pty on|off] eps IP PORT [IP PORT]...\n");
+  printf("    client: [cert CERTHASH] to IP PORT [to IP PORT]...\n");
+  printf("    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] [pty on|off] bind IP PORT [bind IP PORT]...\n");
   printf("    keygen: [cert CERTFILE] [key KEYFILE]\n");
+  printf("    relay:  bind IP PORT to IP PORT [bind|to IP PORT]...\n");
 //#endif
   return 1;
 }
