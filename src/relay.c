@@ -1,7 +1,8 @@
 #include "common.h"
 
-
 int run_relay(const char** bind_elems, size_t bind_len, const char** to_elems, size_t to_len) {
+  // Re-enable sigint
+  signal(SIGINT, SIG_DFL);
   int server = portapty_bind_all(bind_elems, bind_len);
 
   if (server < 0)
@@ -32,6 +33,7 @@ int run_relay(const char** bind_elems, size_t bind_len, const char** to_elems, s
     int remote_server = portapty_connect_first(to_elems, to_len);
     if (remote_server < 0)
       PORTAPTY_CLIENT_DROP;
+
     {
       int client_flags = fcntl(client, F_GETFL, 0);
       client_flags |= O_NONBLOCK;
@@ -50,13 +52,12 @@ int run_relay(const char** bind_elems, size_t bind_len, const char** to_elems, s
     if (pipe2(pipes, O_NONBLOCK)) {
       int err = errno;
       PORTAPTY_PRINTF_ERR("could not create pipes (errno %i)\n", err);
-      PORTAPTY_CLIENT_DROP;
+      return err;
     }
-#define PORTAPTY_SPLICE_BUF_SIZE 16384
+  #define PORTAPTY_SPLICE_BUF_SIZE 16384
     fcntl(pipes[0], F_SETPIPE_SZ, PORTAPTY_SPLICE_BUF_SIZE);
 
-#define PORTAPTY_SPLICE_FLAGS SPLICE_F_NONBLOCK | SPLICE_F_MOVE
-    // SPLICE_F_MORE | SPLICE_F_NONBLOCK | SPLICE_F_MOVE
+  #define PORTAPTY_SPLICE_FLAGS SPLICE_F_NONBLOCK | SPLICE_F_MOVE
     // Set up the forwarding
     int n_read = 0;
     while (!((poll_result = portapty_poll(client, remote_server)) & Portapty_Poll_ClosedMask)) {

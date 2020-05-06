@@ -78,7 +78,8 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
   mbedtls_entropy_free(&entropy);
 }
 
-int run_server(const char** eps_elems, size_t eps_len, const char* key_path, const char* cert_path,
+int run_server(const char** eps_elems, size_t eps_len,
+               const char* key_path, const char* cert_path,
                const char* driver, const char* cmd, uint8_t is_pty, const char* plod) {
   // Re-enable sigint
   signal(SIGINT, SIG_DFL);
@@ -93,7 +94,7 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
   const char** args = calloc( // This probably doesn't need to be a calloc
         1 + // 'cert'
         1 + // the hash
-        1 + // 'eps'
+        1 + // 'to'
         eps_len + // All the ips and ports
         1, // trailing null
         sizeof(char**)
@@ -175,7 +176,7 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
   // Work out what args we forward to the client
   args[0] = "cert";
   args[1] = fingerprint;
-  args[2] = "eps";
+  args[2] = "to";
   memcpy(&args[3], eps_elems, eps_len * sizeof(const char*));
 
   // INET6 means that we get to do both v4 and v6

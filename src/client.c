@@ -3,13 +3,6 @@
 #include <time.h>
 
 int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64) {
-#ifdef NDEBUG
-  // Fork to background
-  if (fork())
-    exit(0);
-  setsid();
-#endif
-
   int err = 0;
   int client;
   if ((client = portapty_connect_first(eps_elems, eps_len)) < 0) {
@@ -28,14 +21,6 @@ int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64
 
   mbedtls_ssl_context ssl_ctx;
   mbedtls_ssl_init(&ssl_ctx);
-
-  uint8_t buf[256];
-  if ((err = mbedtls_hmac_drbg_random(&rng, buf, 256))) {
-    char err_buf[256];
-    mbedtls_strerror(err, err_buf, 256);
-    PORTAPTY_PRINTF_ERR("rng borked (%s)\n", err_buf);
-    goto cleanup;
-  }
 
   union handshake_config handshake_cfg;
   char cmdline[PORTAPTY_CMD_WIDTH];

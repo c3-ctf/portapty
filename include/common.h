@@ -114,7 +114,8 @@ union handshake_config {
 // This API is sadistic: it took me hours to work out that a mbedtls_ssl_config allocated in this
 // function would cause weird stack corruptions 5 frames down.
 int do_handshake(int sock, mbedtls_ssl_context* ssl_ctx, mbedtls_ssl_config* ssl_cfg,
-                 mbedtls_hmac_drbg_context* rng, int is_server, const union handshake_config* cfg);
+                 mbedtls_hmac_drbg_context* rng, int is_server,
+                 const union handshake_config* cfg);
 
 // TODO: dynamic plod selection based on remote arch
 int run_server(const char** eps_elems, size_t eps_len, const char* key_path, const char* cert_path,

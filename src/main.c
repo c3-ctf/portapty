@@ -75,15 +75,15 @@ int main(const int argc, const char* argv[]) {
     else if (!strcmp(argv[i], "cert"))
       cert_str = argv[++i];
     else if (!strcmp(argv[i], "key")) {
-      if (mode == Portapty_Client) {
+      if (mode == Portapty_Client || mode == Portapty_Relay) {
         PORTAPTY_PRINTF_ERR("key cannot be specified in client mode\n");
         goto print_help;
       }
       key_str = argv[++i];
     }
     else if (!strcmp(argv[i], "pty")) {
-      if (mode == Portapty_Client) {
-        PORTAPTY_PRINTF_ERR("pty cannot be specified in client mode\n");
+      if (mode != Portapty_Server) {
+        PORTAPTY_PRINTF_ERR("pty can only be specified in server mode\n");
         goto print_help;
       }
       ++i;
@@ -132,7 +132,7 @@ int main(const int argc, const char* argv[]) {
       goto print_help;
     }
   }
-  // Handle the multiargs
+  // Handle the required args
   switch (mode) {
     case Portapty_Server: {
       if (!bind_len) {
@@ -160,9 +160,24 @@ int main(const int argc, const char* argv[]) {
     is_pty = 1;
 
   switch (mode) {
-    case Portapty_Client: return run_client(to, to_len, cert_str);
-    case Portapty_Server: return run_server(bind, bind_len, key_str, cert_str,
-                                            driver, cmd, is_pty, argv[0]);
+    case Portapty_Client:
+#ifdef NDEBUG
+  // Fork to background
+  if (fork())
+    exit(0);
+  setsid();
+#endif
+#ifdef NDEBUG
+      while(1) {
+#else
+      return
+#endif
+      run_client(to, to_len, cert_str);
+#ifdef NDEBUG
+      sleep(1);
+    }
+#endif
+    case Portapty_Server: return run_server(bind, bind_len, key_str, cert_str, driver, cmd, is_pty, argv[0]);
     case Portapty_Keygen: return run_gen(key_str, cert_str);
     case Portapty_Relay: return run_relay(bind, bind_len, to, to_len);
     default: abort();
@@ -173,12 +188,12 @@ print_help:
   free(bind);
   // This is helpful even outside of debug mode
 //#ifndef NDEBUG
-  printf("%s <client|server|keygen> [OPTIONS]\n", argv[0]);
+  printf("%s {client|server|keygen|relay} [OPTIONS]\n", argv[0]);
   printf("Options:\n");
   printf("    client: [cert CERTHASH] to IP PORT [to IP PORT]...\n");
   printf("    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] [pty on|off] bind IP PORT [bind IP PORT]...\n");
   printf("    keygen: [cert CERTFILE] [key KEYFILE]\n");
-  printf("    relay:  bind IP PORT to IP PORT [bind|to IP PORT]...\n");
+  printf("    relay:  bind IP PORT to IP PORT [{bind|to} IP PORT]...\n");
 //#endif
   return 1;
 }
