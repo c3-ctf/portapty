@@ -21,9 +21,9 @@ Daemonisation: The upgraded reverse shells get completly detached from the paren
 portapty {client|server|keygen|relay} OPTIONS
 Options:
     client: [cert CERTHASH] to IP PORT [to IP PORT]...
-    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] bind IP PORT [bind IP PORT]...;
+    server: [cert CERTFILE] [key KEYFILE] [driver CMD] [cmd CMD] [pty {on|off}] [persist {on|off}] bind IP PORT [{bind|advert} IP PORT]...
     keygen: [cert CERTFILE] [key KEYFILE]
-    relay:  bind IP PORT to IP PORT [bind|to IP PORT]...
+    relay:  bind IP PORT to IP PORT [{bind|to} IP PORT]...
 ```
 ### Server
 A simple invocation would be `portapty server bind :: 42069`. This hosts a server on port 42069 that will accept
@@ -59,7 +59,9 @@ This is good demonstration of the features provided to drivers. Let's break down
 * `echo sleep 1` sends the command `sleep 1` to the remote shell, giving us time to flush the output before disconnecting
 * `echo exit` will tell the remote shell to close
 * `wait` will wait for the cat command to finish, which will be when the remote closes
-We also can elect to use `bash` rather than the standard shell with the system, which will make most scripts run better.
+We also elect to use `bash` rather than the standard shell with the system, which will make most scripts run better. Note that some extra things have happened due to our usage of `driver`:
+* `pty off` is implied (can be undone with a `pty on` after the `driver CMD` option), so that this looks like a normal pipeline
+* `persist off` is implied (can be undone with a `persist on` after the `driver CMD` option), so that the client won't keep reconnecting
 
 ### Client
 It is rather irregular to invoke the client directly, but if you are particularly worried about security, or are working with an arbitrary upload vulnerability, this could be helpful. 
