@@ -1,11 +1,13 @@
 # portapty
 
 ## What?
-This is a portable pseudoterminal reverse shell upgrader and multiplexer with daemonisation
+This is a portable pseudoterminal resilient reverse shell upgrader and multiplexer with daemonisation
 ### What???
 Portable: works on any linux version that can run this elf type (it's all statically linked and posix compliant)
 
-Pseudoterminal: you can Control-C without killing the shell
+Pseudoterminal: you can Control-C without killing the shell (unless the `pty off` option is given)
+
+Resilient: The client will keep trying to reconnect (unless the `persist off` option is given)
 
 Reverse shell: I haven't made it support bind shells yet
 
