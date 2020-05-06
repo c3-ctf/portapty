@@ -175,7 +175,15 @@ int main(const int argc, const char* argv[]) {
   // Fork to background
   if (fork())
     exit(0);
+  // Move to our own group
   setsid();
+  // Fork again
+  if (fork())
+    exit(0);
+  // Close the file descriptors
+  close(0);
+  close(1);
+  close(2);
 #endif
 #ifdef NDEBUG
       while(1) {
