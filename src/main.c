@@ -34,6 +34,8 @@ int main(const int argc, const char* argv[]) {
   size_t bind_len = 0;
   const char** to = malloc(argc * sizeof(const char*));
   size_t to_len = 0;
+  const char** advert = malloc(argc * sizeof(const char*));
+  size_t advert_len = 0;
   int is_pty = -1;
 
   if (argc < 2)
@@ -115,6 +117,18 @@ int main(const int argc, const char* argv[]) {
       }
       bind[bind_len++] = argv[++i];
     }
+    else if (!strcmp(argv[i], "advert")) {
+      if (mode != Portapty_Server) {
+        PORTAPTY_PRINTF_ERR("advert can only be specified in keygen or client mode\n");
+        goto print_help;
+      }
+      advert[advert_len++] = argv[++i];
+      // If we hit the end for this double arg, fail
+      if (i == argc) {
+        PORTAPTY_PRINTF_ERR("port not given\n");
+      }
+      advert[advert_len++] = argv[++i];
+    }
     else if (!strcmp(argv[i], "to")) {
       if (mode == Portapty_Keygen || mode == Portapty_Server) {
         PORTAPTY_PRINTF_ERR("to cannot be specified in keygen or server mode\n");
@@ -142,7 +156,7 @@ int main(const int argc, const char* argv[]) {
     } break;
     case Portapty_Client: {
       if (!to_len) {
-        PORTAPTY_PRINTF_ERR("missing bind list\n");
+        PORTAPTY_PRINTF_ERR("missing to list\n");
         goto print_help;
       }
     } break;
@@ -177,7 +191,7 @@ int main(const int argc, const char* argv[]) {
       sleep(1);
     }
 #endif
-    case Portapty_Server: return run_server(bind, bind_len, key_str, cert_str, driver, cmd, is_pty, argv[0]);
+    case Portapty_Server: return run_server(bind, bind_len, advert, advert_len, key_str, cert_str, driver, cmd, is_pty, argv[0]);
     case Portapty_Keygen: return run_gen(key_str, cert_str);
     case Portapty_Relay: return run_relay(bind, bind_len, to, to_len);
     default: abort();
@@ -191,7 +205,7 @@ print_help:
   printf("%s {client|server|keygen|relay} [OPTIONS]\n", argv[0]);
   printf("Options:\n");
   printf("    client: [cert CERTHASH] to IP PORT [to IP PORT]...\n");
-  printf("    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] [pty on|off] bind IP PORT [bind IP PORT]...\n");
+  printf("    server: [cert CERTFILE] [key KEYFILE] [driver PATH] [cmd CMD] [pty on|off] bind IP PORT [{bind|advert} IP PORT]...\n");
   printf("    keygen: [cert CERTFILE] [key KEYFILE]\n");
   printf("    relay:  bind IP PORT to IP PORT [{bind|to} IP PORT]...\n");
 //#endif

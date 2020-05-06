@@ -118,7 +118,7 @@ int do_handshake(int sock, mbedtls_ssl_context* ssl_ctx, mbedtls_ssl_config* ssl
                  const union handshake_config* cfg);
 
 // TODO: dynamic plod selection based on remote arch
-int run_server(const char** eps_elems, size_t eps_len, const char* key_path, const char* cert_path,
+int run_server(const char** eps_elems, size_t eps_len, const char** advert_elems, size_t advert_len, const char* key_path, const char* cert_path,
                const char* driver, const char* cmd, uint8_t is_pty, const char* plod);
 int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64);
 int run_gen(const char* key_path, const char* cert_path);

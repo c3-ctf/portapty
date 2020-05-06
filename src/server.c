@@ -79,6 +79,7 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
 }
 
 int run_server(const char** eps_elems, size_t eps_len,
+               const char** advert_elems, size_t advert_len,
                const char* key_path, const char* cert_path,
                const char* driver, const char* cmd, uint8_t is_pty, const char* plod) {
   // Re-enable sigint
@@ -91,16 +92,13 @@ int run_server(const char** eps_elems, size_t eps_len,
     return 1;
   }
 
-  const char** args = calloc( // This probably doesn't need to be a calloc
+  const char** args = calloc( // This probably doesn't need to be a calloc, I could manually set the null
         1 + // 'cert'
         1 + // the hash
-        1 + // 'to'
-        eps_len + // All the ips and ports
+        ((advert_len ? advert_len : eps_len)/2)*3 + // All the ips and ports + 'to'
         1, // trailing null
-        sizeof(char**)
+        sizeof(const char**)
   );
-  int is_cert_ber_alloc = 0;
-
   // Crypto stuff to be filled in
   struct server_ctx ctx;
   mbedtls_pk_init(&ctx.pk_ctx);
@@ -176,8 +174,16 @@ int run_server(const char** eps_elems, size_t eps_len,
   // Work out what args we forward to the client
   args[0] = "cert";
   args[1] = fingerprint;
-  args[2] = "to";
-  memcpy(&args[3], eps_elems, eps_len * sizeof(const char*));
+  const char** arg_ptr;
+  size_t arg_len;
+  if (advert_len) { arg_ptr = advert_elems; arg_len = advert_len; }
+  else            { arg_ptr = eps_elems;    arg_len = eps_len;    }
+
+  for (size_t i = 0; i < arg_len; ++i) {
+    args[2 + i++] = "to";
+    args[2 + i++] = *(arg_ptr++);
+    args[2 + i++] = *(arg_ptr++);
+  }
 
   // INET6 means that we get to do both v4 and v6
   int server = portapty_bind_all(eps_elems, eps_len);
