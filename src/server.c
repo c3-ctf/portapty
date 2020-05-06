@@ -53,10 +53,10 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
     close(read_fd); close(write_fd);
   }
   else {
-//    struct termios tty = {0};
-//    cfmakeraw(&tty);
+    struct termios tty = {0};
+    cfmakeraw(&tty);
 
-    if (openpty(&master, &slave, name, NULL, NULL)) {
+    if (openpty(&master, &slave, name, &tty, NULL)) {
       int err = errno;
       PORTAPTY_PRINTF_ERR("could not open pty (errno %i)\n", err);
       goto cleanup;
