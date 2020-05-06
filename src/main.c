@@ -2,10 +2,6 @@
 
 #include <sys/stat.h>
 
-// Cyclic3's big TODO list of doom:
-//
-// * Disconnect recovery or smth idk
-
 int source_fd;
 const uint8_t* source_buf;
 off_t source_len;
