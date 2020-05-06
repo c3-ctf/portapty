@@ -185,7 +185,7 @@ int do_handshake(int sock, mbedtls_ssl_context* ssl_ctx, mbedtls_ssl_config* ssl
 
   // Now to send or receive the pty indicator, cmdline and hostname
   if (is_server) {
-    mbedtls_ssl_write(ssl_ctx, &cfg->server.is_pty, 1);
+    mbedtls_ssl_write(ssl_ctx, &cfg->server.flags, 1);
     {
       // Make little endian
       uint16_t len = strlen(cfg->server.cmdline);
@@ -211,7 +211,7 @@ int do_handshake(int sock, mbedtls_ssl_context* ssl_ctx, mbedtls_ssl_config* ssl
     }
   }
   else {
-    if (mbedtls_ssl_read(ssl_ctx, cfg->client.is_pty, 1) != 1) {
+    if (mbedtls_ssl_read(ssl_ctx, cfg->client.flags, 1) != 1) {
       err = 1; goto cleanup;
     }
     // Make little endian

@@ -7,7 +7,7 @@ struct server_ctx {
   mbedtls_x509_crt crt;
   const char* driver;
   const char* cmd;
-  uint8_t is_pty;
+  enum handshake_flags flags;
 };
 
 static void handle_client(int client, struct server_ctx* ctx, const char* client_ep_str) {
@@ -32,7 +32,7 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
   cfg.server.crt = &ctx->crt;
   // Default to /bin/sh
   cfg.server.cmdline = ctx->cmd ? ctx->cmd : "/bin/sh";
-  cfg.server.is_pty = ctx->is_pty;
+  cfg.server.flags = ctx->flags;
   cfg.server.hostname_ret = &hostname;
 
   if ((err = do_handshake(client, &ssl_ctx, &ssl_cfg, &rng, 1, &cfg))) {
@@ -68,7 +68,7 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
 
   portapty_read_loop(&ssl_ctx, client, master, master);
 
-  PORTAPTY_PRINTF_IMPORTANT("closing %s (%s)\n", client_ep_str, name);
+  PORTAPTY_PRINTF_IMPORTANT("closing %s (%s)\n", hostname, name);
 
   if (!ctx->driver) close(slave);
   close(master);
@@ -83,7 +83,7 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
 int run_server(const char** eps_elems, size_t eps_len,
                const char** advert_elems, size_t advert_len,
                const char* key_path, const char* cert_path,
-               const char* driver, const char* cmd, uint8_t is_pty, const char* plod) {
+               const char* driver, const char* cmd, enum handshake_flags flags, const char* plod) {
   // Re-enable sigint
   signal(SIGINT, SIG_DFL);
   int err;
@@ -117,7 +117,7 @@ int run_server(const char** eps_elems, size_t eps_len,
   // Now we have finished init'ing , we can get to work
   ctx.driver = driver;
   ctx.cmd = cmd;
-  ctx.is_pty = is_pty;
+  ctx.flags = flags;
 
   if (key_path) {
     uint8_t* buf;

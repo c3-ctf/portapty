@@ -98,6 +98,11 @@ int portapty_load(const char* file, const uint8_t** buf, size_t* len);
 // Again, infimum host length
 #define PORTAPTY_MAX_HOST_LEN 256
 
+enum handshake_flags : uint8_t {
+  Portapty_Handshake_IsPty   = 0b01,
+  Portapty_Handshake_Persist = 0b10
+};
+
 union handshake_config {
   struct {
     mbedtls_x509_crt* crt;
@@ -105,13 +110,13 @@ union handshake_config {
     const char* cmdline;
     char (*hostname_ret)[PORTAPTY_MAX_HOST_LEN];
     // Use a uint8_t for easier serialisation
-    uint8_t is_pty;
+    enum handshake_flags flags;
   } server;
 
   struct {
     const uint8_t (*fingerprint)[PORTAPTY_HASH_LEN];
     char (*cmdline_ret)[PORTAPTY_CMD_WIDTH];
-    uint8_t* is_pty;
+    enum handshake_flags* flags;
     const char* hostname;
   } client;
 };
@@ -124,7 +129,7 @@ int do_handshake(int sock, mbedtls_ssl_context* ssl_ctx, mbedtls_ssl_config* ssl
 
 // TODO: dynamic plod selection based on remote arch
 int run_server(const char** eps_elems, size_t eps_len, const char** advert_elems, size_t advert_len, const char* key_path, const char* cert_path,
-               const char* driver, const char* cmd, uint8_t is_pty, const char* plod);
+               const char* driver, const char* cmd, enum handshake_flags flags, const char* plod);
 int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64);
 int run_gen(const char* key_path, const char* cert_path);
 int run_relay(const char** bind_elems, size_t bind_len, const char** to_elems, size_t to_len);

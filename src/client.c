@@ -25,11 +25,11 @@ int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64
   union handshake_config handshake_cfg;
   char cmdline[PORTAPTY_CMD_WIDTH];
   char hostname[PORTAPTY_MAX_HOST_LEN];
-  uint8_t is_pty;
+  enum handshake_flags flags;
   gethostname(hostname, PORTAPTY_MAX_HOST_LEN);
 
   handshake_cfg.client.cmdline_ret = &cmdline;
-  handshake_cfg.client.is_pty = &is_pty;
+  handshake_cfg.client.flags = &flags;
   handshake_cfg.client.hostname = hostname;
 
   if (cert_hash_b64) {
@@ -48,7 +48,7 @@ int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64
     goto cleanup;
   }
 
-  if (is_pty) {
+  if (flags & Portapty_Handshake_IsPty) {
     PORTAPTY_PRINTF_INFO("starting pty\n");
 
     int master;
@@ -83,8 +83,13 @@ int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64
 cleanup:
   mbedtls_ssl_free(&ssl_ctx);
   mbedtls_ssl_config_free(&ssl_cfg);
+  close(client);
   mbedtls_hmac_drbg_free(&rng);
   mbedtls_entropy_free(&entropy);
+
+  if (!(flags & Portapty_Handshake_Persist)) {
+    exit(err);
+  }
 
   return err;
 }
