@@ -59,7 +59,7 @@ void portapty_read_loop(mbedtls_ssl_context* ssl_ctx, int client_fd, int read_fd
 int portapty_fork_pipe(int* read_fd, int* write_fd, const char* cmdline);
 
 /// @param args: a null terminated array of arguments, with proper quotation and escapes
-void upgrade(int fd, char const* const* args);
+void upgrade(int fd, const uint8_t* plod, size_t len, char const* const* args);
 
 #define PORTAPTY_CERT_BUF_LEN 16384
 #define PORTAPTY_CERT_PEM_LEN (16384 * 2)
@@ -72,18 +72,7 @@ void init_drbg(mbedtls_hmac_drbg_context*, mbedtls_entropy_context*);
 void get_hash(uint8_t hash[PORTAPTY_HASH_LEN], const uint8_t* data, size_t data_len);
 void encode_hash(char str[PORTAPTY_HASH_STR_LEN], const uint8_t data[PORTAPTY_HASH_LEN]);
 int decode_hash(uint8_t data[PORTAPTY_HASH_LEN], const char str[PORTAPTY_HASH_STR_LEN]);
-
-// The handles to the source (as global mutable variables filled in main).
-// mmap means almost no extra memory is used
-//
-// There is no 'nicer' way of doing this, except for the hateful pass-the-parcel approach (see Rust)
-//
-// Yes, this can be spoofed, but only by a) the owner of the executable, or b) the caller
-//
-// If that is a problem, then why are you running user-writable executables as root?
-extern int source_fd;
-extern const uint8_t* source_buf;
-extern off_t source_len;
+int portapty_load(const char* file, const uint8_t** buf, size_t* len);
 
 // The infimum posix ARG_MAX
 #define PORTAPTY_CMD_WIDTH 4096
@@ -109,7 +98,8 @@ union handshake_config {
 int do_handshake(int sock, mbedtls_ssl_context* ssl_ctx, mbedtls_ssl_config* ssl_cfg,
                  mbedtls_hmac_drbg_context* rng, int is_server, const union handshake_config* cfg);
 
+// TODO: dynamic plod selection based on remote arch
 int run_server(const char** eps_elems, size_t eps_len, const char* key_path, const char* cert_path,
-               const char* driver, const char* cmd, uint8_t is_pty);
+               const char* driver, const char* cmd, uint8_t is_pty, const char* plod);
 int run_client(const char** eps_elems, size_t eps_len, const char* cert_hash_b64);
 int run_gen(const char* key_path, const char* cert_path);

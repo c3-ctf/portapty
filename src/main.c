@@ -12,35 +12,6 @@ int source_fd;
 const uint8_t* source_buf;
 off_t source_len;
 
-int portapty_fork_pipe(int* read_fd, int* write_fd, const char* cmdline) {
-  int stdin_pipes[2], stdout_pipes[2];
-  if (pipe(stdin_pipes) || pipe(stdout_pipes)) {
-    return errno;
-  }
-  // pipe[0] is for reading, and pipe[1] is for writing
-  if (!fork()) {
-    // Close the master end
-    close(stdin_pipes[1]); close(stdout_pipes[0]);
-
-    dup2(stdin_pipes[0], STDIN_FILENO);
-    dup2(stdout_pipes[1], STDOUT_FILENO);
-    dup2(stdout_pipes[1], STDERR_FILENO);
-
-    // Close the trailing slave fds
-    close(stdin_pipes[0]); close(stdout_pipes[1]);
-    execl("/bin/sh", "/bin/sh", "-c", cmdline, (char*)NULL);
-
-    // Make a bit of noise if we can't exec sh
-    abort();
-  }
-
-  // Close the slave fds
-  close(stdin_pipes[0]); close(stdout_pipes[1]);
-  *read_fd = stdout_pipes[0];
-  *write_fd = stdin_pipes[1];
-  return 0;
-}
-
 enum mode {
   Portapty_Client, Portapty_Server, Portapty_Keygen
 };
@@ -157,17 +128,10 @@ found_ep_list:
   if (is_pty < 0)
     is_pty = 1;
 
-
-  // Now we open the source file, and map it into memory
-  source_fd = open(argv[0], O_RDONLY | O_CLOEXEC);
-  struct stat s;
-  fstat(source_fd, &s);
-  source_len = s.st_size; //lseek(source_fd, 0, SEEK_END);
-  source_buf = mmap(0, source_len, PROT_READ, MAP_PRIVATE, source_fd, 0);
-
   switch (mode) {
     case Portapty_Client: return run_client(argv + eps_offset, argc - eps_offset, cert_str);
-    case Portapty_Server: return run_server(argv + eps_offset, argc - eps_offset, key_str, cert_str, driver, cmd, is_pty);
+    case Portapty_Server: return run_server(argv + eps_offset, argc - eps_offset, key_str, cert_str,
+                                            driver, cmd, is_pty, argv[0]);
     case Portapty_Keygen: return run_gen(key_str, cert_str);
     default: abort();
   }

@@ -1,6 +1,6 @@
 #include "common.h"
 
-#include <mbedtls/error.h>
+#include <sys/stat.h>
 
 struct server_ctx {
   mbedtls_pk_context pk_ctx;
@@ -41,9 +41,6 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
   int master, slave;
   char name[PATH_MAX];
 
-  struct termios tty;
-  cfmakeraw(&tty);
-
   if (ctx->driver) {
     PORTAPTY_PRINTF_INFO("starting pipes\n");
     int read_fd, write_fd;
@@ -56,7 +53,10 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
     close(read_fd); close(write_fd);
   }
   else {
-    if (openpty(&master, &slave, name, &tty, NULL)) {
+//    struct termios tty = {0};
+//    cfmakeraw(&tty);
+
+    if (openpty(&master, &slave, name, NULL, NULL)) {
       int err = errno;
       PORTAPTY_PRINTF_ERR("could not open pty (errno %i)\n", err);
       goto cleanup;
@@ -79,7 +79,7 @@ static void handle_client(int client, struct server_ctx* ctx, const char* client
 }
 
 int run_server(const char** eps_elems, size_t eps_len, const char* key_path, const char* cert_path,
-               const char* driver, const char* cmd, uint8_t is_pty) {
+               const char* driver, const char* cmd, uint8_t is_pty, const char* plod) {
   // Re-enable sigint
   signal(SIGINT, SIG_DFL);
   int err;
@@ -160,10 +160,16 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
     // We don't need to free tmp_ber, as it was stolen by the _nocopy function above
   }
 
+  // Get the fingerprint
   uint8_t hash_buf[PORTAPTY_HASH_LEN];
   get_hash(hash_buf, ctx.crt.raw.p, ctx.crt.raw.len);
   encode_hash(fingerprint, hash_buf);
   PORTAPTY_PRINTF_IMPORTANT("loaded cert with fingerprint %s\n", fingerprint);
+
+  // Map the local file into memory
+  const uint8_t* payload;
+  size_t payload_len;
+  portapty_load(plod, &payload, &payload_len);
 
   // Work out what args we forward to the client
   args[0] = "cert";
@@ -284,7 +290,7 @@ int run_server(const char** eps_elems, size_t eps_len, const char* key_path, con
     // Upgrade the client
     //
     // TODO: make this optional for edge cases
-    upgrade(client, args);
+    upgrade(client, payload, payload_len, args);
     PORTAPTY_PRINTF_INFO("%s upgrading\n", client_ep_str);
     close(client);
     // No need to exit if we haven't forked
