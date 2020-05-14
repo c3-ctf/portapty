@@ -98,10 +98,10 @@ int portapty_load(const char* file, const uint8_t** buf, size_t* len);
 // Again, infimum host length
 #define PORTAPTY_MAX_HOST_LEN 256
 
-enum handshake_flags : uint8_t {
+enum handshake_flags {
   Portapty_Handshake_IsPty   = 0b01,
   Portapty_Handshake_Persist = 0b10
-};
+} __attribute__((packed));
 
 union handshake_config {
   struct {

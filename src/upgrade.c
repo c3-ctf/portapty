@@ -54,6 +54,7 @@ static size_t upgrade_printf_buf(int fd, const uint8_t* buf, size_t len) {
 
 // Printf is universally available on a posix shell, but can inflate our payload a bit
 static void upgrade_printf(int fd, const uint8_t* source_buf, off_t source_len, char const* const* args) {
+  printf("%p\n", source_buf);
   size_t pos;
   // Clear the file
   WRITE_STRLIT(fd, "echo -n>/tmp/portapty\n");
@@ -81,20 +82,20 @@ int portapty_load(const char* file, const uint8_t** buf, size_t* len) {
   int source_fd;
   if ((source_fd = open(file, O_RDONLY | O_CLOEXEC)) < 0) {
     ret = errno;
-    PORTAPTY_PRINTF_ERR("open failed (errno %i)", ret);
+    PORTAPTY_PRINTF_ERR("open failed (errno %i)\n", ret);
   }
   struct stat s;
   if (fstat(source_fd, &s)) {
     ret = errno;
-    PORTAPTY_PRINTF_ERR("fstat failed (errno %i)", ret);
+    PORTAPTY_PRINTF_ERR("fstat failed (errno %i)\n", ret);
     goto cleanup;
   }
-  *len = s.st_size; //lseek(source_fd, 0, SEEK_END);
+  *len = s.st_size;
   *buf = mmap(0, s.st_size, PROT_READ, MAP_PRIVATE, source_fd, 0);
 
-  if (!*buf) {
+  if (*buf == MAP_FAILED) {
     ret = errno;
-    PORTAPTY_PRINTF_ERR("mmap failed (errno %i)", ret);
+    PORTAPTY_PRINTF_ERR("mmap failed (errno %i)\n", ret);
     goto cleanup;
   }
 

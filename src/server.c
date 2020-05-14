@@ -171,7 +171,8 @@ int run_server(const char** eps_elems, size_t eps_len,
   // Map the local file into memory
   const uint8_t* payload;
   size_t payload_len;
-  portapty_load(plod, &payload, &payload_len);
+  if ((ret = portapty_load(plod, &payload, &payload_len)))
+    goto cleanup;
 
   // Work out what args we forward to the client
   args[0] = "cert";
